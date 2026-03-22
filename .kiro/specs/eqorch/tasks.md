@@ -75,7 +75,7 @@
   - _Requirements: 6.4, 6.7, 12.4, 13.2, 13.5_
 
 - [ ] 4. LLM 判断系と Action 実行系を実装する
-- [ ] 4.1 DecisionContext の組み立てと LLM 入力縮約を実装する
+- [x] 4.1 DecisionContext の組み立てと LLM 入力縮約を実装する
   - State、Policy、Memory、候補、評価、直近エラーをまとめ、`llm_context_steps` に応じた要約入力を生成する
   - 停滞、冗長性、偏り、完了待ちジョブの情報を判断入力へ渡せるようにする
   - 依存: 1.4, 2.1, 2.2 完了後
