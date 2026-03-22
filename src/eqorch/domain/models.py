@@ -131,6 +131,20 @@ class Action:
 
 
 @dataclass(slots=True, frozen=True)
+class Request:
+    query: str
+    context: dict[str, Any] | None = None
+    timeout_sec: int | None = None
+
+    def __post_init__(self) -> None:
+        ensure_non_empty(self.query, "query")
+        if self.context is not None and not isinstance(self.context, dict):
+            raise ValueError("context must be a dict")
+        if self.timeout_sec is not None and self.timeout_sec <= 0:
+            raise ValueError("timeout_sec must be > 0")
+
+
+@dataclass(slots=True, frozen=True)
 class Result:
     status: ResultStatus
     payload: dict[str, Any]

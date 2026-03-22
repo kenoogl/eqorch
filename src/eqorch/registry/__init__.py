@@ -9,6 +9,8 @@ from .component_config import (
     SkillComponentConfig,
     ToolComponentConfig,
 )
+from .engine_registry import EngineRegistry
+from .skill_tool import SkillRegistry, ToolRegistry
 
 __all__ = [
     "BackendComponentConfig",
@@ -16,7 +18,9 @@ __all__ = [
     "ComponentConfigError",
     "ComponentConfigLoader",
     "EngineComponentConfig",
+    "EngineRegistry",
+    "SkillRegistry",
     "SkillComponentConfig",
+    "ToolRegistry",
     "ToolComponentConfig",
 ]
-
