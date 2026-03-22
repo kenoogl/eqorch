@@ -20,7 +20,7 @@ def _state(*, session_id: str, step: int, mode: str = "interactive") -> State:
     )
 
 
-def _entry(*, session_id: str, step: int) -> LogEntry:
+def _entry(*, session_id: str, step: int, before_mode: str = "interactive", after_mode: str = "batch") -> LogEntry:
     return LogEntry(
         step=step,
         session_id=session_id,
@@ -32,9 +32,9 @@ def _entry(*, session_id: str, step: int) -> LogEntry:
             issued_at="2026-03-22T00:00:00Z",
             action_id=str(uuid4()),
         ),
-        result=Result(status="success", payload={"target_mode": "batch"}, error=None),
-        input_summary='{"before": "interactive"}',
-        output_summary='{"after": "batch"}',
+        result=Result(status="success", payload={"target_mode": after_mode}, error=None),
+        input_summary=f'{{"current_mode": "{before_mode}", "session_id": "{session_id}", "step": {step}}}',
+        output_summary=f'{{"current_mode": "{after_mode}", "session_id": "{session_id}", "step": {step}}}',
         state_diff=[],
         duration_ms=1,
         timestamp="2026-03-22T00:00:00Z",
@@ -80,7 +80,7 @@ class ReplayLoaderTest(unittest.TestCase):
                     PersistenceCommit(
                         state_snapshot=_state(session_id=session_id, step=1),
                         state_summaries={"summary": "step-1"},
-                        trace_entries=(_entry(session_id=session_id, step=1),),
+                        trace_entries=(_entry(session_id=session_id, step=1, after_mode="interactive"),),
                     )
                 )
                 store.commit(
@@ -92,7 +92,7 @@ class ReplayLoaderTest(unittest.TestCase):
                 )
                 self.assertTrue(store.flush(timeout=2))
                 loader = ReplayLoader(store)
-                frame = loader.load_frame(session_id, step=2)
+                frame = loader.load_verified_frame(session_id, step=2)
             finally:
                 store.close()
 
@@ -101,6 +101,71 @@ class ReplayLoaderTest(unittest.TestCase):
         self.assertEqual(frame.base_state.step, 2)
         self.assertEqual(len(frame.trace_entries), 2)
         self.assertEqual(frame.trace_entries[-1].step, 2)
+
+    def test_verifies_output_summary_matches_replay_base_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_path = str(Path(tmpdir) / "memory.db")
+            session_id = str(uuid4())
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
+            try:
+                store.commit(
+                    PersistenceCommit(
+                        state_snapshot=_state(session_id=session_id, step=1),
+                        state_summaries={"summary": "step-1"},
+                        trace_entries=(_entry(session_id=session_id, step=1, after_mode="interactive"),),
+                    )
+                )
+                self.assertTrue(store.flush(timeout=2))
+                loader = ReplayLoader(store)
+                frame = loader.load_frame(session_id, step=1)
+                assert frame is not None
+                verification = loader.verify_frame(frame, expected_step=1)
+            finally:
+                store.close()
+
+        self.assertEqual(verification.matched_step, 1)
+        self.assertEqual(verification.trace_count, 1)
+        self.assertEqual(len(verification.verified_action_ids), 1)
+
+    def test_rejects_mismatched_output_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_path = str(Path(tmpdir) / "memory.db")
+            session_id = str(uuid4())
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
+            try:
+                bad_entry = LogEntry(
+                    step=1,
+                    session_id=session_id,
+                    action_id=str(uuid4()),
+                    action=Action(
+                        type="switch_mode",
+                        target="system",
+                        parameters={"target_mode": "batch"},
+                        issued_at="2026-03-22T00:00:00Z",
+                        action_id=str(uuid4()),
+                    ),
+                    result=Result(status="success", payload={"target_mode": "batch"}, error=None),
+                    input_summary='{"current_mode": "interactive"}',
+                    output_summary='{"current_mode": "invalid"}',
+                    state_diff=[],
+                    duration_ms=1,
+                    timestamp="2026-03-22T00:00:00Z",
+                )
+                store.commit(
+                    PersistenceCommit(
+                        state_snapshot=_state(session_id=session_id, step=1),
+                        state_summaries={"summary": "step-1"},
+                        trace_entries=(bad_entry,),
+                    )
+                )
+                self.assertTrue(store.flush(timeout=2))
+                loader = ReplayLoader(store)
+                frame = loader.load_frame(session_id, step=1)
+                assert frame is not None
+                with self.assertRaisesRegex(ValueError, "trace output summary does not match replay base state"):
+                    loader.verify_frame(frame, expected_step=1)
+            finally:
+                store.close()
 
 
 if __name__ == "__main__":

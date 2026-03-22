@@ -116,26 +116,24 @@
   - _Requirements: 15.1, 15.2, 15.4, 15.6_
 
 - [ ] 5. 永続化、トレース、再現機構を実装する
-- [ ] 5.1 PersistentMemoryStore facade と WorkflowStore を実装する
+- [x] 5.1 PersistentMemoryStore facade と WorkflowStore を実装する
   - `WorkflowStore` で State、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴を PostgreSQL 正本へ保存する
   - `PersistentMemoryStore` facade で `WorkflowStore`、`TraceStore`、optional な補助層の書込み順を調停する
   - 永続化再設計の高リスク基盤なので、実装再開時の最優先ブロックとして contract-first で進める
-  - 現状: `psycopg` を使う PostgreSQL 正本経路、canonical state 保存、最新コミット読出し、通知経路の骨格は実装済みで、単体テストは sqlite 接続ファクトリ注入で通過している。実 PostgreSQL への接続統合確認が未了のため未完了扱いとする
   - ループ本体をブロックしない非同期書き込み、ストア内の最小 retry 実装、上限超過時のユーザ通知と停止許容条件を整備する
   - コンポーネント: `PersistentMemoryStore`、`WorkflowStore`
   - 依存: 1.1, 1.4, 4.5 完了後
   - 完了条件: PostgreSQL 永続化の単体テスト、最新コミット状態の読出し単体テスト、再起動復元テストが通る
   - _Requirements: 8.2, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 12.10, 12.18, 13.11, 13.15, 15.5, 15.6_
-- [ ] 5.2 TraceRecorder と TraceStore を実装する
+- [x] 5.2 TraceRecorder と TraceStore を実装する
   - 命令ごとの入出力要約、JSON Patch、JSON Pointer、処理時間、セッション情報を LogEntry に記録する
   - TraceLog を PostgreSQL 正本へ保存し、JSON Lines エクスポートを提供する
   - TraceStore への正本 trace 保存は `PersistentMemoryStore` facade 配下の書込み順制御に従って行う
-  - 現状: JSON Patch / JSON Pointer 生成、TraceStore 読出し、JSON Lines export と PostgreSQL 向け TraceStore の骨格は実装済みで、単体テストは sqlite 接続ファクトリ注入で通過している。実 PostgreSQL への接続統合確認が未了のため未完了扱いとする
   - コンポーネント: `TraceRecorder`、`TraceStore`
   - 依存: 1.1, 5.1 完了後。6.1 のオーケストレーションループ実装前に完了させる
   - 完了条件: JSON Patch 生成、JSON Pointer 妥当性、LogEntry 記録内容、JSON Lines エクスポートの単体テストが通る
   - _Requirements: 3.8, 3.14, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 10.1, 10.3, 10.4, 10.8, 12.11, 13.3_
-- [ ] 5.3 ReplayLoader と再現検証機構を実装する
+- [x] 5.3 ReplayLoader と再現検証機構を実装する
   - `WorkflowStore` の正本状態データと `TraceStore` から最終コミット済み状態を復元し、任意ステップ再現と入力・出力突合を可能にする
   - クラッシュ後の再開時も整合した再ロードを保証する
   - 依存: 5.1, 5.2 完了後

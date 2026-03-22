@@ -11,7 +11,7 @@ from .persistent_store import (
     TraceStore,
     WorkflowStore,
 )
-from .replay_loader import ReplayFrame, ReplayLoader
+from .replay_loader import ReplayFrame, ReplayLoader, ReplayVerification
 from .working_memory import WorkingMemory
 
 __all__ = [
@@ -26,5 +26,6 @@ __all__ = [
     "WorkflowStore",
     "ReplayFrame",
     "ReplayLoader",
+    "ReplayVerification",
     "WorkingMemory",
 ]
