@@ -75,7 +75,7 @@
   - 完了条件: バックエンド実行結果が `Result` へ正規化され、部分成功と失敗が共通形式で返る
   - _Requirements: 6.4, 6.7, 12.4, 13.2, 13.5_
 
-- [ ] 4. LLM 判断系と Action 実行系を実装する
+- [x] 4. LLM 判断系と Action 実行系を実装する
 - [x] 4.1 DecisionContext の組み立てと LLM 入力縮約を実装する
   - State、Policy、Memory、候補、評価、直近エラーをまとめ、`llm_context_steps` に応じた要約入力を生成する
   - 停滞、冗長性、偏り、完了待ちジョブの情報を判断入力へ渡せるようにする
@@ -99,12 +99,12 @@
   - 依存: 2.3, 3.2, 3.3, 3.4, 4.2, 4.5, 5.2 完了後
   - 完了条件: `ActionDispatcher` の必須パラメータ検証、単独実行制約、`switch_mode` の状態更新が自動テストで通る
   - _Requirements: 2.2, 7.2, 7.3, 7.4, 7.5, 7.6, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.10, 11.11, 11.12_
-- [ ] 4.4 LLM 障害時のリトライとモード別フォールバックを実装する
+- [x] 4.4 LLM 障害時のリトライとモード別フォールバックを実装する
   - タイムアウトと provider 依存の一時的失敗をポリシー設定に従って再試行し、上限超過時は interactive で問い合わせ、batch で終了へ遷移させる
   - コンシェルジュ失敗時でもループ継続可能なエラー記録を残す
   - コンポーネント: `RetryPolicyExecutor`
   - 依存: 4.2, 4.3 完了後
-  - 完了条件: 設計書の E2E 対象である LLM リトライ上限超過時のモード別遷移に進める
+  - 完了条件: `ResearchConcierge` の retry/fallback 統合テストで、LLM リトライ上限超過時に interactive は `ask_user`、batch は `terminate` へ遷移し、非 retryable 失敗は即時フォールバックされる
   - _Requirements: 2.6, 15.1, 15.2, 15.3, 15.4, 15.8_
 
 - [x] 4.5 ErrorCoordinator を実装する
@@ -120,6 +120,7 @@
   - `WorkflowStore` で State、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴を PostgreSQL 正本へ保存する
   - `PersistentMemoryStore` facade で `WorkflowStore`、`TraceStore`、optional な補助層の書込み順を調停する
   - 永続化再設計の高リスク基盤なので、実装再開時の最優先ブロックとして contract-first で進める
+  - 現状: canonical state 保存、最新コミット読出し、通知経路の骨格と単体テストは実装済みだが、PostgreSQL 正本実装への追随が未了のため未完了扱いとする
   - ループ本体をブロックしない非同期書き込み、ストア内の最小 retry 実装、上限超過時のユーザ通知と停止許容条件を整備する
   - コンポーネント: `PersistentMemoryStore`、`WorkflowStore`
   - 依存: 1.1, 1.4, 4.5 完了後
@@ -129,6 +130,7 @@
   - 命令ごとの入出力要約、JSON Patch、JSON Pointer、処理時間、セッション情報を LogEntry に記録する
   - TraceLog を PostgreSQL 正本へ保存し、JSON Lines エクスポートを提供する
   - TraceStore への正本 trace 保存は `PersistentMemoryStore` facade 配下の書込み順制御に従って行う
+  - 現状: JSON Patch / JSON Pointer 生成、TraceStore 読出し、JSON Lines export の骨格と単体テストは実装済みだが、PostgreSQL 正本前提での完了条件までは未達のため未完了扱いとする
   - コンポーネント: `TraceRecorder`、`TraceStore`
   - 依存: 1.1, 5.1 完了後。6.1 のオーケストレーションループ実装前に完了させる
   - 完了条件: JSON Patch 生成、JSON Pointer 妥当性、LogEntry 記録内容、JSON Lines エクスポートの単体テストが通る

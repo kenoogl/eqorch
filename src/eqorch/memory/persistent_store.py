@@ -240,6 +240,10 @@ class PersistentMemoryStore:
     def notifications(self) -> tuple[PersistenceNotification, ...]:
         return tuple(self._notifications)
 
+    @property
+    def trace_store(self) -> TraceStore:
+        return self._trace_store
+
     def commit(self, batch: PersistenceCommit) -> PersistenceCommitResult:
         result = PersistenceCommitResult(
             committed=True,
