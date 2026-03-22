@@ -1,0 +1,21 @@
+skills:
+  - name: physics_constraint_checker
+    module: eqorch.skills.physics
+    class: PhysicsConstraintChecker
+
+tools:
+  - name: arxiv_search
+    module: eqorch.tools.arxiv
+    class: ArxivSearchTool
+
+engines:
+  - name: symbolic_regression
+    endpoint: http://localhost:8080/engine
+    protocol: rest
+
+backends:
+  - name: julia_runner
+    executable: julia
+    args:
+      - --project
+      - run.jl
