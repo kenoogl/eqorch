@@ -841,6 +841,7 @@ type PendingJob = {
 
 - `PolicyContextStore` の既定値補完と `goals` 非空検証
 - `ModeRuleEvaluator` の条件式評価
+- `DecisionContextAssembler` のポリシー・状態・メモリ・直近エラー・完了待ちジョブを含む入力組立と `llm_context_steps` による縮約
 - `LLMGateway` の OpenAI / Anthropic / Google provider ごとの `Action[]` 正規化
 - `LLMGateway` の provider ごとの一時的失敗と不正レスポンスの `ErrorInfo` 正規化
 - `ActionDispatcher` のパラメータ検証
@@ -850,7 +851,7 @@ type PendingJob = {
 - `TraceRecorder` の JSON Patch / JSON Pointer 生成
 - `WorkingMemory` の `lru` / `fifo` 退避
 - `WorkflowStore` の正本保存と最終コミット状態読出し
-- `TraceStore` の `LogEntry` 保存と差分読出し
+- `TraceStore` の `LogEntry` 保存、差分読出し、JSON Lines export
 - `ReplayLoader` の `WorkflowStore` 基点 + `TraceStore` 差分による再現
 - `PersistentMemoryStore` の正本優先コミット順と補助層切り離し
 - `KnowledgeIndex` の optional 反映条件と再構築方針
@@ -861,8 +862,12 @@ type PendingJob = {
 - provider 設定切替による `LLMGateway` adapter 初期化
 - REST / gRPC エンジンスタブ接続
 - `run-async` / `PollJob` による非同期エンジン実行
+- `State 解釈 -> Action 決定 -> 実行委任 -> State 更新 -> 継続判断` の基本サイクルと `terminate` による通常終了
 - PostgreSQL 正本永続化と再起動復元
+- 部分適用失敗時のロールバックと、未消化の致命エラーまたは通知対象エラーだけを `last_errors` へ保持すること
 - 永続化失敗の再試行上限超過時に通知と停止許容へ遷移すること
+- LLM API 不達、無効ポリシー、無効エンジン設定時にループ開始前で失敗すること
+- optional な `ArtifactStore` へのオブジェクト保存と PostgreSQL 正本側の参照 URI 記録
 - optional な Vector DB / Object Storage 失敗が正本再現性を壊さないこと
 
 ### E2E テスト
@@ -872,3 +877,11 @@ type PendingJob = {
 - LLM リトライ上限超過時のモード別遷移
 - 完了待ちジョブを残したままの終了
 - クラッシュ後の最終コミット状態からの再開
+
+### 非機能検証
+
+- p99、CPU 使用率、並列数上限を反復測定するハーネス
+- 1000 サイクル以上を測定し、先頭 100 サイクルは warm-up として除外する
+- LLM / Engine / Backend はスタブまたは固定応答実装を用いる
+- 候補数 1000、方程式長 256 以下、評価メトリクス数 3 以下の条件で計測する
+- PostgreSQL 書込、Vector DB 反映、Object Storage 転送を別指標として計測する
