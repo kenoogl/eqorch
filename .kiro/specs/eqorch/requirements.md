@@ -254,7 +254,7 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 #### Acceptance Criteria
 1. The EqOrch system shall 単一コンポーネントのエラーでオーケストレーションループ全体を停止させない
 2. The EqOrch system shall すべてのエラーを `ErrorInfo` モデルに従って記録する
-3. When LLM API がタイムアウトまたは HTTP 5xx を返したとき, the EqOrch system shall ポリシーのリトライ設定に従って再試行する
+3. When LLM API がタイムアウトまたは provider 依存の一時的失敗を返したとき, the EqOrch system shall ポリシーのリトライ設定に従って再試行する
 4. If リトライ上限を超過した場合, then the EqOrch system shall 失敗した命令のエラー情報を記録し、未消化の致命エラーまたは通知対象エラーに該当するもののみを状態のエラー記録欄へ保持して次サイクルのコンシェルジュ入力に含める
 5. If PostgreSQL 正本永続層への書き込みが失敗した場合, then the EqOrch system shall 次サイクルで再試行する
 6. If PostgreSQL 正本永続層への書き込みがリトライ上限を超えて失敗した場合, then the EqOrch system shall ユーザへ通知してプロセス停止を許容する
