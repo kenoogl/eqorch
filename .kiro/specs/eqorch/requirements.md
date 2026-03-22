@@ -18,6 +18,7 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 4. The EqOrch system shall ポリシーをワークフロー状態の解釈と Action 決定の入力として扱う
 5. Where ポリシーの差分追跡が有効な構成では, the EqOrch system shall ポリシー改訂履歴を保持できる
 6. The EqOrch system shall ポリシーのトリガー条件として少なくとも `stagnation_threshold` と `diversity_threshold` を扱える
+7. The EqOrch system shall 探索戦略として少なくとも `expand`、`refine`、`restart` を扱える
 
 ### Requirement 2: LLM リサーチコンシェルジュ
 **Objective:** As a 研究者, I want LLM コンシェルジュが現在状態を解釈して次の制御を決めてほしい, so that 探索を状態駆動で進行できる
@@ -33,9 +34,9 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 **Objective:** As a 開発者, I want State、Candidate、Evaluation、Action、TraceLog の必須構造を固定したい, so that 各モジュールが同じ前提で接続できる
 
 #### Acceptance Criteria
-1. The EqOrch system shall State に `policy_context`、`workflow_memory`、`candidates`、`evaluations`、`current_mode` を含める
-2. The EqOrch system shall Candidate に `id`、`equation`、`score`、`reasoning`、`origin`、`created_at` を含める
-3. The EqOrch system shall Evaluation に `candidate_id`、評価メトリクス、`timestamp` を含める
+1. The EqOrch system shall State に `policy_context`、`workflow_memory`、`candidates`、`evaluations`、および `interactive` か `batch` を値に取る `current_mode` を含める
+2. The EqOrch system shall Candidate に `id`、`equation`、`score`、`reasoning`、`LLM`、`Engine`、`Hybrid` のいずれかを値に取る `origin`、`created_at` を含める
+3. The EqOrch system shall Evaluation に `candidate_id`、`mse` と `complexity` を含む `metrics` 構造、`timestamp` を含める
 4. The EqOrch system shall Action に `type`、`target`、`parameters` を含める
 5. The EqOrch system shall LogEntry に `step`、`action`、`input_summary`、`output_summary`、`timestamp` を含める
 
@@ -88,8 +89,9 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 1. The EqOrch system shall ワークフローメモリをオンメモリ層と永続ストレージ層の 2 層で管理する
 2. While オーケストレーションサイクルが進行中である間, the EqOrch system shall 現在サイクルの State をオンメモリ層で低レイテンシに参照できる
 3. When オンメモリ層のサイズ上限を超えたとき, the EqOrch system shall 古いエントリを永続層へ退避できる
-4. When 各オーケストレーションサイクルが終了したとき, the EqOrch system shall 実行結果、State 差分、ポリシー改訂、モード遷移履歴を永続層へ書き出す
+4. When 各オーケストレーションサイクルが終了したとき, the EqOrch system shall 実行結果、中間サマリー、State 差分、ポリシー改訂、モード遷移履歴を永続層へ書き出す
 5. The EqOrch system shall 永続層からオンメモリ層へのロードと、過去状態からの再起動をサポートする
+6. The EqOrch system shall オンメモリ層から永続層への書き込みを非同期で実行し、オーケストレーションループを不必要にブロックしない
 
 ### Requirement 9: 説明可能性
 **Objective:** As a 研究者, I want 候補と制御判断の根拠を確認したい, so that 探索の妥当性を検証できる
@@ -130,6 +132,10 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 3. The EqOrch system shall スキルに `State -> Result`、ツールに `Request -> Result` の統一シグネチャを定義する
 4. The EqOrch system shall 探索エンジンに `Instruction -> list[Candidate] + list[Evaluation]`、実行バックエンドに `(実行コマンド・設定) -> (数値結果・ステータス)` の統一シグネチャを定義する
 5. The EqOrch system shall LLM API 呼び出しに OpenAI 互換または Anthropic API 形式を利用できる
+6. The EqOrch system shall ポリシーファイルに Markdown、YAML、TOML を使用できる
+7. The EqOrch system shall オンメモリ層のワークフローメモリをプロセス内辞書または同等の言語標準データ構造で扱える
+8. The EqOrch system shall 永続層のワークフローメモリに JSON Lines、SQLite、または同等のファイルベース DB を使用できる
+9. The EqOrch system shall TraceLog を構造化テキストとして永続層へ保存できる
 
 ### Requirement 13: 非機能要求と設計制約
 **Objective:** As a プロジェクト保守者, I want 拡張性、再現性、互換性の制約を明確にしたい, so that 実装判断が SRS の設計方針から逸脱しない
@@ -143,3 +149,12 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 6. The EqOrch system shall LLM に大規模候補評価や数値シミュレーションを直接実行させない
 7. The EqOrch system shall コンシェルジュ、スキル、ツール、エンジンを独立に交換可能なモジュールとして扱う
 8. The EqOrch system shall 大規模バッチ探索においてもオーケストレーション層がボトルネックにならないことを前提に設計する
+9. Where ポリシー外部化が有効な構成では, the EqOrch system shall ポリシーファイル変更のみで振る舞いを変更できる
+
+### Requirement 14: 前提条件
+**Objective:** As a プロジェクト保守者, I want システム成立に必要な前提条件を明確にしたい, so that 設計と運用の責任境界を曖昧にしない
+
+#### Acceptance Criteria
+1. The EqOrch system shall LLM API へのアクセスが確保されていることを前提条件として扱う
+2. The EqOrch system shall 外部探索エンジンおよび実行バックエンドがインターフェース仕様に従って接続されることを前提条件として扱う
+3. The EqOrch system shall ポリシーファイルが有効な形式で提供されることを前提条件として扱う
