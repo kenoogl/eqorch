@@ -7,7 +7,12 @@ import json
 import queue
 import sqlite3
 from threading import Event, Lock, Thread
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
+
+try:  # pragma: no cover - exercised in PostgreSQL environments
+    import psycopg
+except ImportError:  # pragma: no cover - unit tests inject sqlite
+    psycopg = None
 
 from eqorch.app import ErrorCoordinator
 from eqorch.domain import (
@@ -24,6 +29,35 @@ from eqorch.domain import (
     StateDiffEntry,
 )
 from eqorch.domain.policy import ModeRule, PolicyContext, RetryPolicy, TriggerThresholds
+
+
+class ConnectionFactory(Protocol):
+    dialect: str
+
+    def connect(self) -> Any:
+        ...
+
+
+class PostgresConnectionFactory:
+    dialect = "postgres"
+
+    def __init__(self, database_url: str) -> None:
+        self._database_url = database_url
+
+    def connect(self) -> Any:
+        if psycopg is None:
+            raise RuntimeError("psycopg is required for PostgreSQL persistence")
+        return psycopg.connect(self._database_url)
+
+
+class SqliteConnectionFactory:
+    dialect = "sqlite"
+
+    def __init__(self, database_path: str) -> None:
+        self._database_path = database_path
+
+    def connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self._database_path)
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,148 +98,251 @@ class _PersistenceJob:
 class WorkflowStore:
     """Canonical structured state store."""
 
-    def __init__(self, database_path: str) -> None:
-        self._database_path = database_path
+    def __init__(self, connection_factory: ConnectionFactory) -> None:
+        self._connection_factory = connection_factory
         self._init_schema()
 
     def commit_state(self, snapshot: State, summaries: dict[str, Any]) -> str:
         state_json = json.dumps(_serialize_state(snapshot), ensure_ascii=True, sort_keys=True)
         summaries_json = json.dumps(_normalize_value(summaries), ensure_ascii=True, sort_keys=True)
-        with sqlite3.connect(self._database_path) as connection:
-            connection.execute(
-                """
-                INSERT INTO workflow_snapshots (session_id, step, state_json, summaries_json)
-                VALUES (?, ?, ?, ?)
-                """,
-                (snapshot.session_id, snapshot.step, state_json, summaries_json),
-            )
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                connection.execute(
+                    """
+                    INSERT INTO workflow_snapshots (session_id, step, state_json, summaries_json)
+                    VALUES (%s, %s, CAST(%s AS JSONB), CAST(%s AS JSONB))
+                    """,
+                    (snapshot.session_id, snapshot.step, state_json, summaries_json),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO workflow_snapshots (session_id, step, state_json, summaries_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (snapshot.session_id, snapshot.step, state_json, summaries_json),
+                )
             connection.commit()
         return f"{snapshot.session_id}:{snapshot.step}"
 
     def load_latest(self, session_id: str) -> State | None:
-        with sqlite3.connect(self._database_path) as connection:
-            row = connection.execute(
-                """
-                SELECT state_json
-                FROM workflow_snapshots
-                WHERE session_id = ?
-                ORDER BY step DESC
-                LIMIT 1
-                """,
-                (session_id,),
-            ).fetchone()
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                row = connection.execute(
+                    """
+                    SELECT state_json
+                    FROM workflow_snapshots
+                    WHERE session_id = %s
+                    ORDER BY step DESC
+                    LIMIT 1
+                    """,
+                    (session_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT state_json
+                    FROM workflow_snapshots
+                    WHERE session_id = ?
+                    ORDER BY step DESC
+                    LIMIT 1
+                    """,
+                    (session_id,),
+                ).fetchone()
         if row is None:
             return None
-        return _deserialize_state(json.loads(row[0]))
+        return _deserialize_state(_decode_json_value(row[0]))
 
     def load_replay_base(self, session_id: str, step: int | None = None) -> State | None:
-        query = """
-            SELECT state_json
-            FROM workflow_snapshots
-            WHERE session_id = ?
-        """
-        params: list[Any] = [session_id]
-        if step is not None:
-            query += " AND step <= ?"
-            params.append(step)
-        query += " ORDER BY step DESC LIMIT 1"
-        with sqlite3.connect(self._database_path) as connection:
-            row = connection.execute(query, tuple(params)).fetchone()
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                query = """
+                    SELECT state_json
+                    FROM workflow_snapshots
+                    WHERE session_id = %s
+                """
+                params: list[Any] = [session_id]
+                if step is not None:
+                    query += " AND step <= %s"
+                    params.append(step)
+                query += " ORDER BY step DESC LIMIT 1"
+                row = connection.execute(query, tuple(params)).fetchone()
+            else:
+                query = """
+                    SELECT state_json
+                    FROM workflow_snapshots
+                    WHERE session_id = ?
+                """
+                params = [session_id]
+                if step is not None:
+                    query += " AND step <= ?"
+                    params.append(step)
+                query += " ORDER BY step DESC LIMIT 1"
+                row = connection.execute(query, tuple(params)).fetchone()
         if row is None:
             return None
-        return _deserialize_state(json.loads(row[0]))
+        return _deserialize_state(_decode_json_value(row[0]))
 
     def _init_schema(self) -> None:
-        with sqlite3.connect(self._database_path) as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS workflow_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    step INTEGER NOT NULL,
-                    state_json TEXT NOT NULL,
-                    summaries_json TEXT NOT NULL
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS workflow_snapshots (
+                        id BIGSERIAL PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        step INTEGER NOT NULL,
+                        state_json JSONB NOT NULL,
+                        summaries_json JSONB NOT NULL
+                    )
+                    """
                 )
-                """
-            )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS workflow_snapshots_session_step_idx
+                    ON workflow_snapshots (session_id, step DESC)
+                    """
+                )
+            else:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS workflow_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        step INTEGER NOT NULL,
+                        state_json TEXT NOT NULL,
+                        summaries_json TEXT NOT NULL
+                    )
+                    """
+                )
             connection.commit()
 
 
 class TraceStore:
     """Canonical trace store inside the source-of-truth database."""
 
-    def __init__(self, database_path: str) -> None:
-        self._database_path = database_path
+    def __init__(self, connection_factory: ConnectionFactory) -> None:
+        self._connection_factory = connection_factory
         self._init_schema()
 
     def append_entries(self, session_id: str, entries: tuple[LogEntry, ...]) -> str:
-        if not entries:
-            latest_step = 0
-        else:
-            latest_step = max(entry.step for entry in entries)
-        with sqlite3.connect(self._database_path) as connection:
-            for entry in entries:
-                connection.execute(
-                    """
-                    INSERT INTO trace_entries (session_id, step, action_id, entry_json)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        entry.step,
-                        entry.action_id,
-                        json.dumps(_normalize_value(asdict(entry)), ensure_ascii=True, sort_keys=True),
-                    ),
-                )
+        latest_step = max((entry.step for entry in entries), default=0)
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                for entry in entries:
+                    connection.execute(
+                        """
+                        INSERT INTO trace_entries (session_id, step, action_id, entry_json)
+                        VALUES (%s, %s, %s, CAST(%s AS JSONB))
+                        """,
+                        (
+                            session_id,
+                            entry.step,
+                            entry.action_id,
+                            json.dumps(_normalize_value(asdict(entry)), ensure_ascii=True, sort_keys=True),
+                        ),
+                    )
+            else:
+                for entry in entries:
+                    connection.execute(
+                        """
+                        INSERT INTO trace_entries (session_id, step, action_id, entry_json)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            session_id,
+                            entry.step,
+                            entry.action_id,
+                            json.dumps(_normalize_value(asdict(entry)), ensure_ascii=True, sort_keys=True),
+                        ),
+                    )
             connection.commit()
         return f"{session_id}:{latest_step}"
 
     def load_entries(self, session_id: str, *, up_to_step: int | None = None) -> tuple[LogEntry, ...]:
-        query = """
-            SELECT entry_json
-            FROM trace_entries
-            WHERE session_id = ?
-        """
-        params: list[Any] = [session_id]
-        if up_to_step is not None:
-            query += " AND step <= ?"
-            params.append(up_to_step)
-        query += " ORDER BY step ASC, id ASC"
-        with sqlite3.connect(self._database_path) as connection:
-            rows = connection.execute(query, tuple(params)).fetchall()
-        return tuple(_deserialize_log_entry(json.loads(row[0])) for row in rows)
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                query = """
+                    SELECT entry_json
+                    FROM trace_entries
+                    WHERE session_id = %s
+                """
+                params: list[Any] = [session_id]
+                if up_to_step is not None:
+                    query += " AND step <= %s"
+                    params.append(up_to_step)
+                query += " ORDER BY step ASC, id ASC"
+                rows = connection.execute(query, tuple(params)).fetchall()
+            else:
+                query = """
+                    SELECT entry_json
+                    FROM trace_entries
+                    WHERE session_id = ?
+                """
+                params = [session_id]
+                if up_to_step is not None:
+                    query += " AND step <= ?"
+                    params.append(up_to_step)
+                query += " ORDER BY step ASC, id ASC"
+                rows = connection.execute(query, tuple(params)).fetchall()
+        return tuple(_deserialize_log_entry(_decode_json_value(row[0])) for row in rows)
 
     def export_jsonl(self, path: str, *, session_id: str | None = None) -> str:
-        query = """
-            SELECT entry_json
-            FROM trace_entries
-        """
-        params: tuple[Any, ...] = ()
-        if session_id is not None:
-            query += " WHERE session_id = ?"
-            params = (session_id,)
-        query += " ORDER BY step ASC, id ASC"
-        with sqlite3.connect(self._database_path) as connection:
-            rows = connection.execute(query, params).fetchall()
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                query = "SELECT entry_json FROM trace_entries"
+                params: tuple[Any, ...] = ()
+                if session_id is not None:
+                    query += " WHERE session_id = %s"
+                    params = (session_id,)
+                query += " ORDER BY step ASC, id ASC"
+                rows = connection.execute(query, params).fetchall()
+            else:
+                query = "SELECT entry_json FROM trace_entries"
+                params = ()
+                if session_id is not None:
+                    query += " WHERE session_id = ?"
+                    params = (session_id,)
+                query += " ORDER BY step ASC, id ASC"
+                rows = connection.execute(query, params).fetchall()
         with open(path, "w", encoding="utf-8") as handle:
             for (entry_json,) in rows:
-                handle.write(entry_json)
+                handle.write(json.dumps(_decode_json_value(entry_json), ensure_ascii=True, sort_keys=True))
                 handle.write("\n")
         return path
 
     def _init_schema(self) -> None:
-        with sqlite3.connect(self._database_path) as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS trace_entries (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    step INTEGER NOT NULL,
-                    action_id TEXT NOT NULL,
-                    entry_json TEXT NOT NULL
+        with self._connection_factory.connect() as connection:
+            if self._connection_factory.dialect == "postgres":
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trace_entries (
+                        id BIGSERIAL PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        step INTEGER NOT NULL,
+                        action_id TEXT NOT NULL,
+                        entry_json JSONB NOT NULL
+                    )
+                    """
                 )
-                """
-            )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS trace_entries_session_step_idx
+                    ON trace_entries (session_id, step ASC, id ASC)
+                    """
+                )
+            else:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trace_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        step INTEGER NOT NULL,
+                        action_id TEXT NOT NULL,
+                        entry_json TEXT NOT NULL
+                    )
+                    """
+                )
             connection.commit()
 
 
@@ -214,17 +351,19 @@ class PersistentMemoryStore:
 
     def __init__(
         self,
-        database_path: str,
+        database_url: str,
         *,
+        connection_factory: ConnectionFactory | None = None,
         workflow_store: WorkflowStore | None = None,
         trace_store: TraceStore | None = None,
         error_coordinator: ErrorCoordinator | None = None,
         max_retries: int = 3,
         notification_callback: Callable[[PersistenceNotification], None] | None = None,
     ) -> None:
-        self._database_path = database_path
-        self._workflow_store = workflow_store or WorkflowStore(database_path)
-        self._trace_store = trace_store or TraceStore(database_path)
+        self._database_url = database_url
+        self._connection_factory = connection_factory or PostgresConnectionFactory(database_url)
+        self._workflow_store = workflow_store or WorkflowStore(self._connection_factory)
+        self._trace_store = trace_store or TraceStore(self._connection_factory)
         self._error_coordinator = error_coordinator or ErrorCoordinator()
         self._max_retries = max_retries
         self._notification_callback = notification_callback
@@ -307,6 +446,14 @@ class PersistentMemoryStore:
         with self._lock:
             self._workflow_store.commit_state(batch.state_snapshot, batch.state_summaries)
             self._trace_store.append_entries(batch.state_snapshot.session_id, batch.trace_entries)
+
+
+def _decode_json_value(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        return json.loads(value)
+    if isinstance(value, dict):
+        return value
+    raise TypeError(f"unsupported JSON value type: {type(value)!r}")
 
 
 def _serialize_state(state: State) -> dict[str, Any]:
@@ -457,6 +604,8 @@ __all__ = [
     "PersistenceCommitResult",
     "PersistenceNotification",
     "PersistentMemoryStore",
+    "PostgresConnectionFactory",
+    "SqliteConnectionFactory",
     "TraceStore",
     "WorkflowStore",
 ]

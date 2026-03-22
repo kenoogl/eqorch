@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from eqorch.domain import Action, LogEntry, Memory, Result, State
 from eqorch.domain.policy import PolicyContext
-from eqorch.memory import PersistenceCommit, PersistentMemoryStore, ReplayLoader
+from eqorch.memory import PersistenceCommit, PersistentMemoryStore, ReplayLoader, SqliteConnectionFactory
 
 
 def _state(*, session_id: str, step: int, mode: str = "interactive") -> State:
@@ -46,7 +46,7 @@ class ReplayLoaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 store.commit(
                     PersistenceCommit(
@@ -74,7 +74,7 @@ class ReplayLoaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 store.commit(
                     PersistenceCommit(

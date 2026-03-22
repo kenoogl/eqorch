@@ -8,7 +8,7 @@ from uuid import uuid4
 from eqorch.app import ErrorCoordinator
 from eqorch.domain import LogEntry, Memory, Result, State
 from eqorch.domain.policy import PolicyContext
-from eqorch.memory import PersistenceCommit, PersistentMemoryStore, TraceStore
+from eqorch.memory import PersistenceCommit, PersistentMemoryStore, SqliteConnectionFactory
 
 
 def _state(*, session_id: str, step: int) -> State:
@@ -25,7 +25,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 store.commit(
                     PersistenceCommit(
@@ -52,7 +52,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 for step in (1, 2, 3):
                     store.commit(
@@ -73,7 +73,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 result = store.commit(
                     PersistenceCommit(
@@ -109,7 +109,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
             database_path = str(Path(tmpdir) / "memory.db")
             export_path = str(Path(tmpdir) / "trace.jsonl")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path)
+            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
             try:
                 entry = LogEntry(
                     step=3,
@@ -131,7 +131,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
                     )
                 )
                 self.assertTrue(store.flush(timeout=2))
-                trace_store = TraceStore(database_path)
+                trace_store = store.trace_store
                 loaded = trace_store.load_entries(session_id)
                 exported = trace_store.export_jsonl(export_path, session_id=session_id)
                 lines = Path(exported).read_text(encoding="utf-8").strip().splitlines()
@@ -150,6 +150,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
             session_id = str(uuid4())
             store = PersistentMemoryStore(
                 database_path,
+                connection_factory=SqliteConnectionFactory(database_path),
                 error_coordinator=ErrorCoordinator(),
                 max_retries=1,
                 notification_callback=notifications.append,

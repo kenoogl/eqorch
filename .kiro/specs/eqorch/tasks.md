@@ -120,7 +120,7 @@
   - `WorkflowStore` で State、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴を PostgreSQL 正本へ保存する
   - `PersistentMemoryStore` facade で `WorkflowStore`、`TraceStore`、optional な補助層の書込み順を調停する
   - 永続化再設計の高リスク基盤なので、実装再開時の最優先ブロックとして contract-first で進める
-  - 現状: canonical state 保存、最新コミット読出し、通知経路の骨格と単体テストは実装済みだが、PostgreSQL 正本実装への追随が未了のため未完了扱いとする
+  - 現状: `psycopg` を使う PostgreSQL 正本経路、canonical state 保存、最新コミット読出し、通知経路の骨格は実装済みで、単体テストは sqlite 接続ファクトリ注入で通過している。実 PostgreSQL への接続統合確認が未了のため未完了扱いとする
   - ループ本体をブロックしない非同期書き込み、ストア内の最小 retry 実装、上限超過時のユーザ通知と停止許容条件を整備する
   - コンポーネント: `PersistentMemoryStore`、`WorkflowStore`
   - 依存: 1.1, 1.4, 4.5 完了後
@@ -130,7 +130,7 @@
   - 命令ごとの入出力要約、JSON Patch、JSON Pointer、処理時間、セッション情報を LogEntry に記録する
   - TraceLog を PostgreSQL 正本へ保存し、JSON Lines エクスポートを提供する
   - TraceStore への正本 trace 保存は `PersistentMemoryStore` facade 配下の書込み順制御に従って行う
-  - 現状: JSON Patch / JSON Pointer 生成、TraceStore 読出し、JSON Lines export の骨格と単体テストは実装済みだが、PostgreSQL 正本前提での完了条件までは未達のため未完了扱いとする
+  - 現状: JSON Patch / JSON Pointer 生成、TraceStore 読出し、JSON Lines export と PostgreSQL 向け TraceStore の骨格は実装済みで、単体テストは sqlite 接続ファクトリ注入で通過している。実 PostgreSQL への接続統合確認が未了のため未完了扱いとする
   - コンポーネント: `TraceRecorder`、`TraceStore`
   - 依存: 1.1, 5.1 完了後。6.1 のオーケストレーションループ実装前に完了させる
   - 完了条件: JSON Patch 生成、JSON Pointer 妥当性、LogEntry 記録内容、JSON Lines エクスポートの単体テストが通る

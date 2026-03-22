@@ -9,6 +9,7 @@ description = "EqOrch orchestration core"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
+  "psycopg[binary]>=3.2",
 ]
 
 [tool.setuptools]

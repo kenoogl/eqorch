@@ -6,6 +6,8 @@ from .persistent_store import (
     PersistenceCommitResult,
     PersistenceNotification,
     PersistentMemoryStore,
+    PostgresConnectionFactory,
+    SqliteConnectionFactory,
     TraceStore,
     WorkflowStore,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "PersistenceCommitResult",
     "PersistenceNotification",
     "PersistentMemoryStore",
+    "PostgresConnectionFactory",
+    "SqliteConnectionFactory",
     "TraceStore",
     "WorkflowStore",
     "ReplayFrame",
