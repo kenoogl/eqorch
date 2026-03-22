@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import re
@@ -16,28 +17,89 @@ class PolicyLoadError(ValueError):
     """Raised when a policy file or patch is invalid."""
 
 
+@dataclass(slots=True, frozen=True)
+class PolicyRevision:
+    revision_id: int
+    source: str
+    status: str
+    summary: str
+    patch: dict[str, Any] | None = None
+
+
 class PolicyContextStore:
     """Loads, validates, and updates PolicyContext instances."""
 
     def __init__(self, initial_policy: PolicyContext | None = None) -> None:
         self._current = initial_policy
+        self._pending: PolicyContext | None = None
+        self._history: list[PolicyRevision] = []
+        self._next_revision_id = 1
 
     @property
     def current(self) -> PolicyContext | None:
         return self._current
 
+    @property
+    def pending(self) -> PolicyContext | None:
+        return self._pending
+
+    @property
+    def history(self) -> tuple[PolicyRevision, ...]:
+        return tuple(self._history)
+
     def load_file(self, path: str | Path) -> PolicyContext:
-        policy = self._parse_path(Path(path))
+        try:
+            policy = self._parse_path(Path(path))
+        except PolicyLoadError as exc:
+            self._record_revision(
+                source="file",
+                status="rejected",
+                summary=f"failed to load policy file: {exc}",
+            )
+            raise
         self._current = policy
+        self._pending = None
+        self._record_revision(
+            source="file",
+            status="applied",
+            summary="loaded policy file",
+        )
         return policy
 
-    def apply_patch(self, patch: dict[str, Any]) -> PolicyContext:
+    def apply_patch(self, patch: dict[str, Any], source: str = "update_policy") -> PolicyContext:
         if self._current is None:
             raise PolicyLoadError("cannot apply patch without an existing policy")
-        merged = _deep_merge(_policy_to_raw(self._current), patch)
-        policy = self._normalize(merged)
-        self._current = policy
+        try:
+            merged = _deep_merge(_policy_to_raw(self._current), patch)
+            policy = self._normalize(merged)
+        except PolicyLoadError as exc:
+            self._record_revision(
+                source=source,
+                status="rejected",
+                summary=f"failed to stage policy patch: {exc}",
+                patch=patch,
+            )
+            raise
+        self._pending = policy
+        self._record_revision(
+            source=source,
+            status="staged",
+            summary="staged policy patch for next cycle",
+            patch=patch,
+        )
         return policy
+
+    def activate_pending(self) -> PolicyContext | None:
+        if self._pending is None:
+            return None
+        self._current = self._pending
+        self._pending = None
+        self._record_revision(
+            source="activation",
+            status="applied",
+            summary="activated staged policy for current cycle",
+        )
+        return self._current
 
     def _parse_path(self, path: Path) -> PolicyContext:
         suffix = path.suffix.lower()
@@ -55,6 +117,24 @@ class PolicyContextStore:
         if not isinstance(data, dict):
             raise PolicyLoadError("policy file must contain an object")
         return self._normalize(data)
+
+    def _record_revision(
+        self,
+        source: str,
+        status: str,
+        summary: str,
+        patch: dict[str, Any] | None = None,
+    ) -> None:
+        self._history.append(
+            PolicyRevision(
+                revision_id=self._next_revision_id,
+                source=source,
+                status=status,
+                summary=summary,
+                patch=patch,
+            )
+        )
+        self._next_revision_id += 1
 
     def _parse_markdown(self, content: str) -> dict[str, Any]:
         frontmatter = re.match(r"^---\n(.*?)\n---\n?", content, re.DOTALL)

@@ -93,6 +93,46 @@ class PolicyContextStoreTest(unittest.TestCase):
 
         self.assertEqual(updated.max_candidates, 5)
         self.assertEqual(updated.retry.max_retries, 1)
+        self.assertEqual(store.current.max_candidates, 100)
+        self.assertEqual(store.pending.max_candidates, 5)
+
+    def test_activate_pending_promotes_staged_policy(self) -> None:
+        store = PolicyContextStore()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "policy.yaml"
+            path.write_text("goals:\n  - valid\n", encoding="utf-8")
+            store.load_file(path)
+
+        store.apply_patch({"max_candidates": 5})
+        activated = store.activate_pending()
+
+        self.assertIsNotNone(activated)
+        self.assertEqual(store.current.max_candidates, 5)
+        self.assertIsNone(store.pending)
+
+    def test_history_tracks_applied_staged_and_rejected_updates(self) -> None:
+        store = PolicyContextStore()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "policy.yaml"
+            path.write_text("goals:\n  - valid\n", encoding="utf-8")
+            store.load_file(path)
+
+        store.apply_patch({"max_candidates": 5}, source="manual")
+        with self.assertRaises(PolicyLoadError):
+            store.apply_patch({"goals": []}, source="update_policy")
+        store.activate_pending()
+
+        self.assertEqual(
+            [(item.source, item.status) for item in store.history],
+            [
+                ("file", "applied"),
+                ("manual", "staged"),
+                ("update_policy", "rejected"),
+                ("activation", "applied"),
+            ],
+        )
 
 
 if __name__ == "__main__":
