@@ -42,6 +42,7 @@
 - 仕様や方針が変わった場合は、先に `.kiro/steering/` または `.kiro/specs/` を更新する
 - 追跡対象のドキュメントは日本語を既定とする
 - ユーザーが `git-cp` と指示した場合は、このリポジトリでは「必要な変更をコミットしてプッシュする依頼」として扱う
+- `git-cp` では `git add` → `git commit` → `git push` をこの順で直列実行し、`git commit` と `git push` を並列実行しない
 
 ## Steering 設定
 
