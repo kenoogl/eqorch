@@ -25,7 +25,7 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 11. If ポリシーファイルが必須項目を欠くか不正な値を含む場合, then the EqOrch system shall ロードを拒否し、旧ポリシーを維持したままエラーを返す
 12. When LLM API 呼び出し時にコンテキスト長制約へ近づいたとき, the EqOrch system shall ポリシーの `llm_context_steps` で指定された直近ステップ数までの状態要約に入力を縮約する
 13. The EqOrch system shall `mode_switch_criteria.rules` の各要素を `condition`、`target_mode`、`reason` で表現し、条件式を EqOrch 本体の式評価機構で機械的に評価できるようにする
-14. The EqOrch system shall 既定値として `max_candidates=100`、`max_evaluations=500`、`max_memory_entries=1000`、`llm_context_steps=20`、`retry.max_retries=3`、`retry.retry_interval_sec=5` を用いる
+14. The EqOrch system shall 既定値として `max_candidates=100`、`max_evaluations=500`、`max_memory_entries=1000`、`max_parallel_actions=8`、`llm_context_steps=20`、`retry.max_retries=3`、`retry.retry_interval_sec=5` を用いる
 15. The EqOrch system shall `retry.excluded_types` の既定値として `ask_user`、`switch_mode`、`terminate` を用いる
 16. The EqOrch system shall ポリシーの `goals` に少なくとも 1 件の探索目標を要求し、空配列を不正として扱う
 
@@ -158,11 +158,12 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 4. The EqOrch system shall `ask_user` と `terminate` を並行発行リストへ含めた場合にバリデーションエラーとする
 5. When Action が実行されたとき, the EqOrch system shall 成功した命令の結果のみを状態へ差分適用し、失敗分は適用しない
 6. The EqOrch system shall `terminate` Action によりオーケストレーションループを正常終了できる
-7. When ワークフローが開始されたとき, the EqOrch system shall ポリシーコンテキストと過去のワークフローメモリを読み込んで State を初期化する
-8. The EqOrch system shall 「State 解釈 → Action 決定 → 実行委任 → State 更新 → 継続判断」のサイクルを繰り返せる
-9. The EqOrch system shall `Action.parameters` に対して命令種別ごとの必須スキーマを適用し、少なくとも `call_skill.input`、`call_tool.query`、`run_engine.instruction`、`ask_user.prompt`、`update_policy.patch`、`switch_mode.target_mode` を必須とする
-10. If Action が未定義フィールドまたは種別不整合な `parameters` を含む場合, then the EqOrch system shall 実行前にバリデーションエラーとして拒否する
-11. The EqOrch system shall `Action.parameters` の任意フィールドとして `call_skill.timeout_sec=60`、`call_tool.timeout_sec=30`、`run_engine.timeout_sec=3600`、`run_engine.async=false`、`ask_user.options`、`switch_mode.reason`、`terminate.reason` を扱える
+7. When 新規ワークフローが開始されたとき, the EqOrch system shall ポリシーコンテキストと指定された初期 State を読み込んで State を初期化できる
+8. When 既存ワークフローを再開するとき, the EqOrch system shall 過去のワークフローメモリと最終コミット済み状態を読み込んで State を再構築できる
+9. The EqOrch system shall 「State 解釈 → Action 決定 → 実行委任 → State 更新 → 継続判断」のサイクルを繰り返せる
+10. The EqOrch system shall `Action.parameters` に対して命令種別ごとの必須スキーマを適用し、少なくとも `call_skill.input`、`call_tool.query`、`run_engine.instruction`、`ask_user.prompt`、`update_policy.patch`、`switch_mode.target_mode` を必須とする
+11. If Action が未定義フィールドまたは種別不整合な `parameters` を含む場合, then the EqOrch system shall 実行前にバリデーションエラーとして拒否する
+12. The EqOrch system shall `Action.parameters` の任意フィールドとして `call_skill.timeout_sec=60`、`call_tool.timeout_sec=30`、`run_engine.timeout_sec=3600`、`run_engine.async=false`、`ask_user.options`、`switch_mode.reason`、`terminate.reason` を扱える
 
 ### Requirement 12: インターフェース要求
 **Objective:** As a 開発者, I want 各外部境界の入出力契約を明確にしたい, so that 実装時にコンポーネント間の接続仕様がぶれない
