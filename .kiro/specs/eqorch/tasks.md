@@ -112,7 +112,7 @@
   - _Requirements: 15.1, 15.2, 15.4, 15.6_
 
 - [ ] 5. 永続化、トレース、再現機構を実装する
-- [ ] 5.1 PersistentMemoryStore と非同期永続化キューを実装する
+- [x] 5.1 PersistentMemoryStore と非同期永続化キューを実装する
   - SQLite を既定実装とし、JSON Lines 互換出力も可能な永続層を用意する
   - ループ本体をブロックしない非同期書き込み、ストア内の最小 retry 実装、上限超過時のユーザ通知と停止許容条件を整備する
   - コンポーネント: `PersistentMemoryStore`
