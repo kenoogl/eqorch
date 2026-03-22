@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from eqorch.app import ErrorCoordinator
+from eqorch.domain import ErrorInfo
+from eqorch.gateways import LLMGatewayError
 
 
 class ErrorCoordinatorTest(unittest.TestCase):
@@ -35,6 +37,19 @@ class ErrorCoordinatorTest(unittest.TestCase):
         self.assertEqual(coordinated.category, "persistence_fatal")
         self.assertTrue(coordinated.should_notify_user)
         self.assertTrue(coordinated.should_stop)
+
+    def test_uses_error_info_from_gateway_error(self) -> None:
+        coordinator = ErrorCoordinator()
+
+        coordinated = coordinator.normalize(
+            source="llm",
+            failure=LLMGatewayError(
+                ErrorInfo(code="LLM_AUTH_FAILED", message="bad credentials", retryable=False)
+            ),
+        )
+
+        self.assertEqual(coordinated.error.code, "LLM_AUTH_FAILED")
+        self.assertEqual(coordinated.category, "user_visible")
 
 
 if __name__ == "__main__":

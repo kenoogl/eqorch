@@ -39,6 +39,8 @@ class ErrorCoordinator:
     def _to_error_info(self, source: str, failure: Exception | str | dict[str, Any]) -> ErrorInfo:
         if isinstance(failure, ErrorInfo):
             return failure
+        if isinstance(failure, Exception) and isinstance(getattr(failure, "error", None), ErrorInfo):
+            return getattr(failure, "error")
         if isinstance(failure, dict):
             return ErrorInfo(
                 code=str(failure["code"]),
@@ -79,4 +81,3 @@ def _exception_code(source: str, failure: Exception) -> str:
 
 def _is_retryable_exception(failure: Exception) -> bool:
     return isinstance(failure, TimeoutError)
-

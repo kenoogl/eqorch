@@ -51,8 +51,12 @@ class DispatcherTest(unittest.TestCase):
                     from eqorch.domain import Result
 
                     class ExampleSkill:
-                        def execute(self, state):
-                            return Result(status="success", payload={"step": state.step}, error=None)
+                        def execute(self, request):
+                            return Result(
+                                status="success",
+                                payload={"step": request.state.step, "input": request.input},
+                                error=None,
+                            )
                     """
                 ),
                 encoding="utf-8",
@@ -101,7 +105,7 @@ class DispatcherTest(unittest.TestCase):
                 skill_registry.register_from_config(config.skills)
                 tool_registry.register_from_config(config.tools)
                 engine_registry.register_from_config(config.engines)
-                return ActionDispatcher(
+                dispatcher = ActionDispatcher(
                     skill_registry=skill_registry,
                     tool_registry=tool_registry,
                     engine_gateway=EngineGateway(
@@ -113,6 +117,8 @@ class DispatcherTest(unittest.TestCase):
                     error_coordinator=ErrorCoordinator(),
                     trace_recorder=TraceRecorder(),
                 )
+                dispatcher._plugin_tmpdir = tmpdir  # type: ignore[attr-defined]
+                return dispatcher
             finally:
                 sys.path.remove(tmpdir)
 
@@ -169,6 +175,23 @@ class DispatcherTest(unittest.TestCase):
 
         update_records = dispatcher.dispatch([actions[1]], state)
         self.assertEqual(update_records[0].result.payload["policy_update"], "staged")
+
+    def test_dispatches_call_skill_with_skill_request(self) -> None:
+        dispatcher = self._dispatcher()
+        state = self._state()
+        action = Action(
+            type="call_skill",
+            target="example_skill",
+            parameters={"input": {"topic": "symmetry"}, "timeout_sec": 45},
+            issued_at=ts(),
+            action_id=str(uuid4()),
+        )
+
+        records = dispatcher.dispatch([action], state)
+
+        self.assertEqual(records[0].result.status, "success")
+        self.assertEqual(records[0].result.payload["step"], 0)
+        self.assertEqual(records[0].result.payload["input"], {"topic": "symmetry"})
 
 
 if __name__ == "__main__":

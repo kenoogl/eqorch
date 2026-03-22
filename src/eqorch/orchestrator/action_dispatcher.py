@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from eqorch.app import ErrorCoordinator, PolicyContextStore
-from eqorch.domain import Action, ErrorInfo, Request, Result, State
+from eqorch.domain import Action, ErrorInfo, Request, Result, SkillRequest, State
 from eqorch.gateways import BackendGateway, EngineGateway
 from eqorch.registry import SkillRegistry, ToolRegistry
 from eqorch.tracing import TracePlan, TraceRecorder
@@ -90,7 +90,12 @@ class ActionDispatcher:
         params = dict(action.parameters)
         if action.type == "call_skill":
             timeout = int(params.get("timeout_sec", DEFAULT_TIMEOUTS["call_skill"]))
-            return self._skill_registry.execute(action.target, state, timeout_sec=timeout)
+            request = SkillRequest(
+                state=state,
+                input=dict(params["input"]),
+                timeout_sec=timeout,
+            )
+            return self._skill_registry.execute(action.target, request)
         if action.type == "call_tool":
             timeout = int(params.get("timeout_sec", DEFAULT_TIMEOUTS["call_tool"]))
             request = Request(
@@ -147,4 +152,3 @@ class ActionDispatcher:
             raise ValueError(f"missing parameters for {action.type}: {sorted(missing)}")
         if action.type == "switch_mode" and parameters["target_mode"] not in {"interactive", "batch"}:
             raise ValueError("switch_mode.target_mode must be interactive or batch")
-

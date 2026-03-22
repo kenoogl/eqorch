@@ -131,6 +131,21 @@ class Action:
 
 
 @dataclass(slots=True, frozen=True)
+class SkillRequest:
+    state: "State"
+    input: dict[str, Any]
+    timeout_sec: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, State):
+            raise TypeError("state must be a State")
+        if not isinstance(self.input, dict):
+            raise ValueError("input must be a dict")
+        if self.timeout_sec is not None and self.timeout_sec <= 0:
+            raise ValueError("timeout_sec must be > 0")
+
+
+@dataclass(slots=True, frozen=True)
 class Request:
     query: str
     context: dict[str, Any] | None = None

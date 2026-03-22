@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-from eqorch.domain import Memory, Request, Result, State
+from eqorch.domain import Memory, Request, Result, SkillRequest, State
 from eqorch.domain.policy import PolicyContext
 from eqorch.registry import ComponentConfigLoader, SkillRegistry, ToolRegistry
 
@@ -34,8 +34,16 @@ class SkillToolRegistryTest(unittest.TestCase):
                     from eqorch.domain import Result
 
                     class ExampleSkill:
-                        def execute(self, state):
-                            return Result(status="success", payload={"step": state.step}, error=None)
+                        def execute(self, request):
+                            return Result(
+                                status="success",
+                                payload={
+                                    "step": request.state.step,
+                                    "input": request.input,
+                                    "timeout_sec": request.timeout_sec,
+                                },
+                                error=None,
+                            )
                     """
                 ),
                 encoding="utf-8",
@@ -77,13 +85,18 @@ class SkillToolRegistryTest(unittest.TestCase):
                 skill_registry.register_from_config(config.skills)
                 tool_registry.register_from_config(config.tools)
 
-                skill_result = skill_registry.execute("example_skill", _state())
+                skill_result = skill_registry.execute(
+                    "example_skill",
+                    SkillRequest(state=_state(), input={"topic": "symmetry"}, timeout_sec=45),
+                )
                 tool_result = tool_registry.execute("example_tool", Request(query="find papers"))
             finally:
                 sys.path.remove(tmpdir)
 
         self.assertEqual(skill_result.status, "success")
         self.assertEqual(skill_result.payload["step"], 0)
+        self.assertEqual(skill_result.payload["input"], {"topic": "symmetry"})
+        self.assertEqual(skill_result.payload["timeout_sec"], 45)
         self.assertEqual(tool_result.status, "success")
         self.assertEqual(tool_result.payload["query"], "find papers")
 
@@ -91,7 +104,7 @@ class SkillToolRegistryTest(unittest.TestCase):
         skill_registry = SkillRegistry()
         tool_registry = ToolRegistry()
 
-        skill_result = skill_registry.execute("missing", _state())
+        skill_result = skill_registry.execute("missing", SkillRequest(state=_state(), input={}))
         tool_result = tool_registry.execute("missing", Request(query="q"))
 
         self.assertEqual(skill_result.error.code, "SKILL_NOT_FOUND")
@@ -136,6 +149,54 @@ class SkillToolRegistryTest(unittest.TestCase):
                 registry = ToolRegistry()
                 registry.register_from_config(config.tools)
                 result = registry.execute("slow_tool", Request(query="q", timeout_sec=1))
+            finally:
+                sys.path.remove(tmpdir)
+
+        self.assertEqual(result.status, "timeout")
+        self.assertEqual(result.error.code, "TIMEOUT")
+
+    def test_skill_timeout_returns_timeout_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            package = root / "dummy_skill_timeout"
+            package.mkdir()
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "skills.py").write_text(
+                textwrap.dedent(
+                    """
+                    import time
+                    from eqorch.domain import Result
+
+                    class SlowSkill:
+                        def execute(self, request):
+                            time.sleep(1.05)
+                            return Result(status="success", payload={"ok": True}, error=None)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "components.yaml"
+            config_path.write_text(
+                textwrap.dedent(
+                    """
+                    skills:
+                      - name: slow_skill
+                        module: dummy_skill_timeout.skills
+                        class: SlowSkill
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, tmpdir)
+            try:
+                config = ComponentConfigLoader().load_file(config_path)
+                registry = SkillRegistry()
+                registry.register_from_config(config.skills)
+                result = registry.execute(
+                    "slow_skill",
+                    SkillRequest(state=_state(), input={"q": "test"}, timeout_sec=1),
+                )
             finally:
                 sys.path.remove(tmpdir)
 

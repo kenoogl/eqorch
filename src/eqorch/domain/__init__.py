@@ -11,6 +11,7 @@ from .models import (
     PendingJob,
     Request,
     Result,
+    SkillRequest,
     State,
     StateDiffEntry,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "Request",
     "Result",
     "RetryPolicy",
+    "SkillRequest",
     "State",
     "StateDiffEntry",
     "TriggerThresholds",

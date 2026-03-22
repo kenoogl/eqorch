@@ -6,12 +6,12 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from importlib import import_module
 from typing import Any, Protocol
 
-from eqorch.domain import ErrorInfo, Request, Result, State
+from eqorch.domain import ErrorInfo, Request, Result, SkillRequest
 from .component_config import SkillComponentConfig, ToolComponentConfig
 
 
 class SkillContract(Protocol):
-    def execute(self, state: State) -> Result: ...
+    def execute(self, request: SkillRequest) -> Result: ...
 
 
 class ToolContract(Protocol):
@@ -38,7 +38,7 @@ class SkillRegistry:
         except KeyError as exc:
             raise KeyError("SKILL_NOT_FOUND") from exc
 
-    def execute(self, name: str, state: State, timeout_sec: int = 60) -> Result:
+    def execute(self, name: str, request: SkillRequest) -> Result:
         try:
             skill = self.get(name)
         except KeyError:
@@ -47,7 +47,8 @@ class SkillRegistry:
                 payload={},
                 error=ErrorInfo(code="SKILL_NOT_FOUND", message=f"skill not found: {name}", retryable=False),
             )
-        return _run_with_timeout(lambda: skill.execute(state), timeout_sec)
+        timeout_sec = request.timeout_sec or 60
+        return _run_with_timeout(lambda: skill.execute(request), timeout_sec)
 
 
 class ToolRegistry:

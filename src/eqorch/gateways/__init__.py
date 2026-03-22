@@ -2,7 +2,7 @@
 
 from .backend import BackendExecutionResult, BackendGateway, BackendRunner, ExecutionCommand, ResultNormalizer
 from .engine import EngineDispatchResult, EngineGateway, EngineTransport, PendingJobManager
-from .llm import LLMGateway, LLMProviderAdapter
+from .llm import LLMGateway, LLMGatewayError, LLMProviderAdapter
 
 __all__ = [
     "BackendExecutionResult",
@@ -13,6 +13,7 @@ __all__ = [
     "EngineTransport",
     "ExecutionCommand",
     "LLMGateway",
+    "LLMGatewayError",
     "LLMProviderAdapter",
     "PendingJobManager",
     "ResultNormalizer",
