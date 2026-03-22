@@ -81,12 +81,12 @@
   - 依存: 1.4, 2.1, 2.2 完了後
   - 完了条件: `DecisionContextAssembler` の単体テストで、ポリシー・状態・メモリ・直近エラー・完了待ちジョブを含む入力組立と `llm_context_steps` による縮約が通る
   - _Requirements: 1.12, 2.1, 2.3, 3.1, 8.1, 15.4, 16.4_
-- [x] 4.2 LLM ゲートウェイとコンシェルジュ判断を実装する
-  - OpenAI 互換または Anthropic 互換の差異を抽象化し、必ず 1 件以上の Action を返す判断フローを構築する
+- [ ] 4.2 LLM ゲートウェイとコンシェルジュ判断を実装する
+  - OpenAI、Anthropic、Google Gemini provider の差異を抽象化し、必ず 1 件以上の Action を返す判断フローを構築する
   - 必要に応じて批評・評価補助モジュールを追加できる拡張点を残す
   - コンポーネント: `ResearchConcierge`、`LLMGateway`
   - 依存: 4.1 完了後
-  - 完了条件: LLM スタブを用いた単体または結合テストで、1 件以上の Action が返り、OpenAI 互換と Anthropic 互換の両入力形式が共通 Action へ正規化される
+  - 完了条件: LLM スタブを用いた単体または結合テストで、1 件以上の Action が返り、OpenAI、Anthropic、Google の各入力形式が共通 Action へ正規化され、provider ごとの認証失敗、タイムアウト、不正レスポンスが `ErrorInfo` へ正規化される
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 12.5, 13.4, 13.6, 13.7, 14.1_
 - [x] 4.3 ActionDispatcher の検証とディスパッチを実装する
   - Action type ごとの必須パラメータ、既定タイムアウト、単独実行制約、未定義フィールド拒否を実装する
@@ -190,7 +190,7 @@
   - _Requirements: 8.8, 8.9, 10.2, 10.3, 11.8, 13.15_
 - [ ] 7.3 RuntimeEnvironmentChecks を実装する
   - LLM API 接続、ポリシーファイル妥当性、外部エンジン・バックエンド設定契約の成立を起動前に検証する
-  - `LLMGateway` を介して OpenAI 互換または Anthropic 互換 API の接続可能性を確認する
+  - `LLMGateway` を介して OpenAI、Anthropic、Google Gemini provider の接続可能性を確認する
   - 前提条件不成立時はループ開始前に失敗理由を返して終了する
   - コンポーネント: `RuntimeEnvironmentChecks`
   - 依存: 2.1, 3.1, 3.3, 3.4, 4.2 完了後

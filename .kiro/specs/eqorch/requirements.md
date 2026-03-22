@@ -190,21 +190,22 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 3. The EqOrch system shall スキルに `SkillRequest -> Result`、ツールに `Request -> Result` の統一シグネチャを定義する
 4. The EqOrch system shall `SkillRequest` に少なくとも `state` と `input` を含める
 5. The EqOrch system shall 探索エンジンに `Instruction -> list[Candidate] + list[Evaluation]`、実行バックエンドに `(実行コマンド・設定) -> (数値結果・ステータス)` の統一シグネチャを定義する
-6. The EqOrch system shall LLM API 呼び出しに OpenAI 互換または Anthropic API 形式を利用できる
-7. The EqOrch system shall ポリシーファイルに Markdown、YAML、TOML を使用できる
-8. The EqOrch system shall オンメモリ層のワークフローメモリをプロセス内辞書または同等の言語標準データ構造で扱える
-9. The EqOrch system shall 正本永続層のワークフローメモリに PostgreSQL を使用できる
-10. The EqOrch system shall TraceLog を JSON Lines 形式でエクスポートできる
-11. The EqOrch system shall スキル、ツール、エンジンの登録設定を YAML 形式のコンポーネント設定ファイルで管理できる
-12. The EqOrch system shall エンジン通信方式として少なくとも REST と gRPC を扱える
-13. The EqOrch system shall 非同期エンジン実行について `run-async` と `poll` 相当の契約を表現できる
-14. The EqOrch system shall コンポーネント設定ファイルに少なくとも `name`、`module`、`class` または `endpoint`、`protocol` を定義できる
-15. Where `protocol` が `grpc` の場合, the EqOrch system shall コンポーネント設定ファイルに `proto`、`service`、`Run` / `RunAsync` / `PollJob` に対応する RPC 情報を定義できる
-16. Where `protocol` が `rest` の場合, the EqOrch system shall 同期実行に `POST {endpoint}/run`、非同期実行に `POST {endpoint}/run-async`、状態確認に `GET {endpoint}/job/{job_id}` 相当の契約を扱える
-17. The EqOrch system shall ワークフローメモリ正本永続層の既定実装として PostgreSQL を用いる
-18. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB を補助インデックスとして利用できる
-19. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage を補助ストアとして利用できる
-20. The EqOrch system shall SkillRequest、Request、Candidate、Evaluation、実行結果 payload などの外部境界データに対して、受入時に契約違反を検出し、拒否または正規化できる
+6. The EqOrch system shall LLM API 呼び出しに OpenAI、Anthropic、Google Gemini を含む複数 provider の API 形式を利用できる
+7. The EqOrch system shall provider ごとの差異を抽象化し、共通の Action モデルへ正規化できる
+8. The EqOrch system shall ポリシーファイルに Markdown、YAML、TOML を使用できる
+9. The EqOrch system shall オンメモリ層のワークフローメモリをプロセス内辞書または同等の言語標準データ構造で扱える
+10. The EqOrch system shall 正本永続層のワークフローメモリに PostgreSQL を使用できる
+11. The EqOrch system shall TraceLog を JSON Lines 形式でエクスポートできる
+12. The EqOrch system shall スキル、ツール、エンジンの登録設定を YAML 形式のコンポーネント設定ファイルで管理できる
+13. The EqOrch system shall エンジン通信方式として少なくとも REST と gRPC を扱える
+14. The EqOrch system shall 非同期エンジン実行について `run-async` と `poll` 相当の契約を表現できる
+15. The EqOrch system shall コンポーネント設定ファイルに少なくとも `name`、`module`、`class` または `endpoint`、`protocol` を定義できる
+16. Where `protocol` が `grpc` の場合, the EqOrch system shall コンポーネント設定ファイルに `proto`、`service`、`Run` / `RunAsync` / `PollJob` に対応する RPC 情報を定義できる
+17. Where `protocol` が `rest` の場合, the EqOrch system shall 同期実行に `POST {endpoint}/run`、非同期実行に `POST {endpoint}/run-async`、状態確認に `GET {endpoint}/job/{job_id}` 相当の契約を扱える
+18. The EqOrch system shall ワークフローメモリ正本永続層の既定実装として PostgreSQL を用いる
+19. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB を補助インデックスとして利用できる
+20. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage を補助ストアとして利用できる
+21. The EqOrch system shall SkillRequest、Request、Candidate、Evaluation、実行結果 payload などの外部境界データに対して、受入時に契約違反を検出し、拒否または正規化できる
 
 ### Requirement 13: 非機能要求と設計制約
 **Objective:** As a プロジェクト保守者, I want 拡張性、再現性、互換性の制約を明確にしたい, so that 実装判断が SRS の設計方針から逸脱しない
