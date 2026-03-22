@@ -54,12 +54,14 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 8. The EqOrch system shall LogEntry に `step`、`session_id`、`action_id`、`action`、`result`、`state_diff`、`duration_ms`、`timestamp` を含める
 9. The EqOrch system shall Result に `success`、`error`、`timeout`、`partial` を値に取る `status`、`payload`、`error` を含める
 10. The EqOrch system shall ErrorInfo に `code`、`message`、`retryable` を含める
-11. The EqOrch system shall オンメモリ Memory に `entries`、`max_entries`、`eviction_policy` を含める
-12. The EqOrch system shall PendingJob に `job_id`、`engine_name`、`action_id`、`issued_at`、`timeout_at` を含める
-13. The EqOrch system shall Memory の各 entry に `key`、`value`、`created_at`、`last_accessed` を含める
-14. The EqOrch system shall LogEntry の `state_diff` を RFC 6902 JSON Patch 形式で保持し、各差分要素の `path` を RFC 6901 JSON Pointer として表現する
-15. The EqOrch system shall `session_id`、`Candidate.id`、`Evaluation.id`、`action_id` に UUIDv4 を用いる
-16. The EqOrch system shall `created_at`、`timestamp`、`issued_at`、`timeout_at`、`last_accessed` を ISO 8601 UTC 形式で表現する
+11. The EqOrch system shall ErrorInfo を少なくとも `fatal`、`user_visible`、`recoverable` の観点で分類できる
+12. The EqOrch system shall ErrorInfo またはそれに付随する分類メタデータから、致命、通知対象、継続可能の判定を機械的に導出できる
+13. The EqOrch system shall オンメモリ Memory に `entries`、`max_entries`、`eviction_policy` を含める
+14. The EqOrch system shall PendingJob に `job_id`、`engine_name`、`action_id`、`issued_at`、`timeout_at` を含める
+15. The EqOrch system shall Memory の各 entry に `key`、`value`、`created_at`、`last_accessed` を含める
+16. The EqOrch system shall LogEntry の `state_diff` を RFC 6902 JSON Patch 形式で保持し、各差分要素の `path` を RFC 6901 JSON Pointer として表現する
+17. The EqOrch system shall `session_id`、`Candidate.id`、`Evaluation.id`、`action_id` に UUIDv4 を用いる
+18. The EqOrch system shall `created_at`、`timestamp`、`issued_at`、`timeout_at`、`last_accessed` を ISO 8601 UTC 形式で表現する
 
 ### Requirement 4: スキル管理
 **Objective:** As a 開発者, I want ドメイン固有推論を再利用可能なスキルとして追加したい, so that オーケストレーションコアを変えずに能力を拡張できる
@@ -70,7 +72,7 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 3. The EqOrch system shall 新しいスキルをオーケストレーションコア変更なしに追加登録できる
 4. When スキルが実行されたとき, the EqOrch system shall 実行結果を State 更新とログ記録の対象に含める
 5. The EqOrch system shall スキル選択をワークフロー制御の一部として扱う
-6. The EqOrch system shall スキルに対して `State -> Result` の統一シグネチャを適用する
+6. The EqOrch system shall スキルに対して `SkillRequest -> Result` の統一シグネチャを適用する
 7. If スキルがタイムアウトした場合, then the EqOrch system shall `timeout` ステータスを返す
 8. If 未登録のスキルが指定された場合, then the EqOrch system shall `SKILL_NOT_FOUND` コードのエラーを返す
 
@@ -115,15 +117,27 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 **Objective:** As a 研究者, I want 探索の状態と履歴を永続化したい, so that セッションをまたいで再現可能に探索を継続できる
 
 #### Acceptance Criteria
-1. The EqOrch system shall ワークフローメモリをオンメモリ層と永続ストレージ層の 2 層で管理する
-2. While オーケストレーションサイクルが進行中である間, the EqOrch system shall 現在サイクルの State をオンメモリ層で低レイテンシに参照できる
-3. When オンメモリ層のサイズ上限を超えたとき, the EqOrch system shall 古いエントリを永続層へ退避できる
-4. When 各オーケストレーションサイクルが終了したとき, the EqOrch system shall 実行結果、中間サマリー、State 差分、ポリシー改訂、モード遷移履歴を永続層へ書き出す
-5. The EqOrch system shall 永続層からオンメモリ層へのロードと、過去状態からの再起動をサポートする
-6. The EqOrch system shall オンメモリ層から永続層への書き込みを非同期で実行し、オーケストレーションループを不必要にブロックしない
-7. The EqOrch system shall オンメモリ層の退避方針として少なくとも `lru` と `fifo` を扱える
-8. The EqOrch system shall 各オーケストレーションサイクル開始時に State の `last_errors` をクリアする
-9. The EqOrch system shall オンメモリ層の既定退避方針として `lru` を用いる
+1. The EqOrch system shall 外部記憶アーキテクチャとして、PostgreSQL 正本層、Trace と replay の記録層、optional な Vector DB 意味検索層、optional な Object Storage 生成物保管層を役割分離して扱う
+2. The EqOrch system shall Trace と replay の記録層を PostgreSQL 正本層内の論理分離された責務として扱い、Candidate と Evaluation の構造化保存責務と区別する
+3. The EqOrch system shall ワークフローメモリをオンメモリ層と外部記憶層の 2 層で管理する
+4. While オーケストレーションサイクルが進行中である間, the EqOrch system shall 現在サイクルの State をオンメモリ層で低レイテンシに参照できる
+5. The EqOrch system shall State、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴を構造化永続層へ保存できる
+6. The EqOrch system shall 構造化永続層の正本として PostgreSQL を用い、再開と再現の基準データをここに保持する
+7. When オンメモリ層のサイズ上限を超えたとき, the EqOrch system shall 古いエントリを正本永続層へ退避できる
+8. When 各オーケストレーションサイクルが終了したとき, the EqOrch system shall 実行結果、中間サマリー、State 差分、ポリシー改訂、モード遷移履歴を正本永続層へ書き出す
+9. The EqOrch system shall 正本永続層からオンメモリ層へのロードと、過去状態からの再起動をサポートする
+10. The EqOrch system shall オンメモリ層から正本永続層への書き込みを非同期で実行し、オーケストレーションループを不必要にブロックしない
+11. The EqOrch system shall オンメモリ層の退避方針として少なくとも `lru` と `fifo` を扱える
+12. The EqOrch system shall 各オーケストレーションサイクル開始時に State の `last_errors` を見直し、前サイクルで未消化の致命エラーまたは通知対象エラーのみを保持し、それ以外をクリアする
+13. The EqOrch system shall オンメモリ層の既定退避方針として `lru` を用いる
+14. Where 意味検索を有効にする構成では, the EqOrch system shall Candidate、reasoning、外部知識の埋め込みを Vector DB へ複製できる
+15. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall それらを Object Storage へ保存できる
+16. The EqOrch system shall TraceLog 自体を Object Storage の正本にせず、Object Storage には replay 成立条件に含めない補助的な生ログ、出力成果物、外部生成物のみを保存する
+17. The EqOrch system shall Vector DB と Object Storage を補助層として扱い、再開と再現の正本には用いない
+18. The EqOrch system shall PostgreSQL 正本永続層の State、TraceLog、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴について保持期間または保持件数のポリシーを設定できる
+19. The EqOrch system shall replay 成立条件に含まれる正本データを、保持ポリシーに基づく削除または圧縮の対象外として保護するか、replay 互換なアーカイブへ移行できる
+20. Where Object Storage を利用する構成では, the EqOrch system shall 補助的な生ログと生成物に対して PostgreSQL 正本層とは独立した保持期間を設定できる
+21. The EqOrch system shall `生ログ` を補助的な非構造ログ、`出力成果物` を EqOrch が生成する要約またはレポート、`外部生成物` を engine、tool、backend が生成したファイル群として区別して扱う
 
 ### Requirement 9: 説明可能性
 **Objective:** As a 研究者, I want 候補と制御判断の根拠を確認したい, so that 探索の妥当性を検証できる
@@ -131,22 +145,24 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 #### Acceptance Criteria
 1. The EqOrch system shall すべての Candidate に reasoning フィールドを持たせる
 2. The EqOrch system shall Candidate の `reasoning` に空文字列または null を許容しない
-3. When Candidate が生成されたとき, the EqOrch system shall その推論根拠をワークフローメモリ永続層へ保存する
+3. When Candidate が生成されたとき, the EqOrch system shall その推論根拠を正本永続層へ保存する
 4. When コンシェルジュが Action を選択したとき, the EqOrch system shall その判断根拠を TraceLog に記録できる
 5. The EqOrch system shall 候補の出自を LLM、Engine、Hybrid の別で追跡できる
 6. The EqOrch system shall 説明情報を後続の比較、レビュー、再実行で参照できる
+7. Where 意味検索を有効にする構成では, the EqOrch system shall reasoning と候補構造を Vector DB から意味検索できる
 
 ### Requirement 10: トレーサビリティ
 **Objective:** As a 開発者, I want すべての制御判断を追跡したい, so that 任意ステップの状態を再現してデバッグできる
 
 #### Acceptance Criteria
 1. The EqOrch system shall 発行されたすべての Action を TraceLog として記録する
-2. When TraceLog を参照したとき, the EqOrch system shall 任意ステップの State を再現できる
-3. The EqOrch system shall TraceLog を永続層に保存し、セッションをまたいで参照できる
+2. When PostgreSQL 上の正本状態データを基点とし、対応する TraceLog 差分を適用したとき, the EqOrch system shall 任意ステップの State を再現できる
+3. The EqOrch system shall TraceLog を正本永続層に保存し、セッションをまたいで参照できる
 4. When 実行結果が State を更新したとき, the EqOrch system shall その入力要約と出力要約をログへ残す
 5. The EqOrch system shall 再現性とデバッグ容易性の基盤として TraceLog を扱う
 6. The EqOrch system shall 並行実行時でも `action_id` により命令と実行記録を一意に突合できる
 7. The EqOrch system shall 再現対象を決定的な状態データと構造化ログに限定し、LLM 生成テキストそのものを一致判定の必須対象にしない
+8. The EqOrch system shall TraceLog を JSON Lines 形式でエクスポートできる
 
 ### Requirement 11: Action 実行とエンドツーエンドワークフロー
 **Objective:** As a 研究者, I want EqOrch が一貫した制御ループで探索を進めてほしい, so that 候補生成から終了判断まで同じモデルで運用できる
@@ -171,20 +187,24 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 #### Acceptance Criteria
 1. The EqOrch system shall 対話モードとして CLI またはチャット形式のインターフェースを提供できる
 2. The EqOrch system shall バッチモードとしてポリシーと初期 State を指定する非対話起動をサポートする
-3. The EqOrch system shall スキルに `State -> Result`、ツールに `Request -> Result` の統一シグネチャを定義する
-4. The EqOrch system shall 探索エンジンに `Instruction -> list[Candidate] + list[Evaluation]`、実行バックエンドに `(実行コマンド・設定) -> (数値結果・ステータス)` の統一シグネチャを定義する
-5. The EqOrch system shall LLM API 呼び出しに OpenAI 互換または Anthropic API 形式を利用できる
-6. The EqOrch system shall ポリシーファイルに Markdown、YAML、TOML を使用できる
-7. The EqOrch system shall オンメモリ層のワークフローメモリをプロセス内辞書または同等の言語標準データ構造で扱える
-8. The EqOrch system shall 永続層のワークフローメモリに JSON Lines、SQLite、または同等のファイルベース DB を使用できる
-9. The EqOrch system shall TraceLog を JSON Lines 形式で永続層へ保存できる
-10. The EqOrch system shall スキル、ツール、エンジンの登録設定を YAML 形式のコンポーネント設定ファイルで管理できる
-11. The EqOrch system shall エンジン通信方式として少なくとも REST と gRPC を扱える
-12. The EqOrch system shall 非同期エンジン実行について `run-async` と `poll` 相当の契約を表現できる
-13. The EqOrch system shall コンポーネント設定ファイルに少なくとも `name`、`module`、`class` または `endpoint`、`protocol` を定義できる
-14. Where `protocol` が `grpc` の場合, the EqOrch system shall コンポーネント設定ファイルに `proto`、`service`、`Run` / `RunAsync` / `PollJob` に対応する RPC 情報を定義できる
-15. Where `protocol` が `rest` の場合, the EqOrch system shall 同期実行に `POST {endpoint}/run`、非同期実行に `POST {endpoint}/run-async`、状態確認に `GET {endpoint}/job/{job_id}` 相当の契約を扱える
-16. The EqOrch system shall ワークフローメモリ永続層の既定実装として SQLite を用いる
+3. The EqOrch system shall スキルに `SkillRequest -> Result`、ツールに `Request -> Result` の統一シグネチャを定義する
+4. The EqOrch system shall `SkillRequest` に少なくとも `state` と `input` を含める
+5. The EqOrch system shall 探索エンジンに `Instruction -> list[Candidate] + list[Evaluation]`、実行バックエンドに `(実行コマンド・設定) -> (数値結果・ステータス)` の統一シグネチャを定義する
+6. The EqOrch system shall LLM API 呼び出しに OpenAI 互換または Anthropic API 形式を利用できる
+7. The EqOrch system shall ポリシーファイルに Markdown、YAML、TOML を使用できる
+8. The EqOrch system shall オンメモリ層のワークフローメモリをプロセス内辞書または同等の言語標準データ構造で扱える
+9. The EqOrch system shall 正本永続層のワークフローメモリに PostgreSQL を使用できる
+10. The EqOrch system shall TraceLog を JSON Lines 形式でエクスポートできる
+11. The EqOrch system shall スキル、ツール、エンジンの登録設定を YAML 形式のコンポーネント設定ファイルで管理できる
+12. The EqOrch system shall エンジン通信方式として少なくとも REST と gRPC を扱える
+13. The EqOrch system shall 非同期エンジン実行について `run-async` と `poll` 相当の契約を表現できる
+14. The EqOrch system shall コンポーネント設定ファイルに少なくとも `name`、`module`、`class` または `endpoint`、`protocol` を定義できる
+15. Where `protocol` が `grpc` の場合, the EqOrch system shall コンポーネント設定ファイルに `proto`、`service`、`Run` / `RunAsync` / `PollJob` に対応する RPC 情報を定義できる
+16. Where `protocol` が `rest` の場合, the EqOrch system shall 同期実行に `POST {endpoint}/run`、非同期実行に `POST {endpoint}/run-async`、状態確認に `GET {endpoint}/job/{job_id}` 相当の契約を扱える
+17. The EqOrch system shall ワークフローメモリ正本永続層の既定実装として PostgreSQL を用いる
+18. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB を補助インデックスとして利用できる
+19. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage を補助ストアとして利用できる
+20. The EqOrch system shall SkillRequest、Request、Candidate、Evaluation、実行結果 payload などの外部境界データに対して、受入時に契約違反を検出し、拒否または正規化できる
 
 ### Requirement 13: 非機能要求と設計制約
 **Objective:** As a プロジェクト保守者, I want 拡張性、再現性、互換性の制約を明確にしたい, so that 実装判断が SRS の設計方針から逸脱しない
@@ -205,6 +225,19 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 13. The EqOrch system shall LLM の命令決定時間を除くオーケストレーション制御オーバーヘッドを p99 50ms/サイクル以下に抑えることを目標とする
 14. The EqOrch system shall 1 バッチあたり 1000 候補以上を処理しても、方程式文字列長 256 文字以下かつ評価メトリクス数 3 以下の条件でオーケストレーション層の CPU 使用率が単独コアの 80% を超えないことを目標とする
 15. The EqOrch system shall クラッシュ後の再起動時に永続層の最終コミット済み状態を保全する
+16. The EqOrch system shall PostgreSQL を再現と再開の唯一の正本として扱う
+17. The EqOrch system shall Vector DB と Object Storage を補助層として扱い、それらのみでは再現可能性を成立条件としない
+18. The EqOrch system shall PostgreSQL 正本永続層へのコミット遅延を、補助層の遅延と分離して個別に測定できる
+19. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB 補助インデックスの更新遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
+20. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage 補助ストアへの転送遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
+21. The EqOrch system shall PostgreSQL 上の正本状態データを基点とした replay の復元時間を、通常サイクルの制御オーバーヘッドと分離して個別に測定できる
+22. If PostgreSQL 正本永続層の保全要件と性能目標が衝突する場合, then the EqOrch system shall 性能目標より正本コミットの整合性と再現可能性を優先する
+23. The EqOrch system shall PostgreSQL 正本永続層のスキーマ変更時に、既存の replay と restart データとの互換性を維持するか、明示的な移行手段を提供する
+24. The EqOrch system shall TraceLog と正本状態データのバージョン差異を検出し、不整合な組み合わせで replay を開始しない
+25. The EqOrch system shall LLM API キー、外部サービス認証情報、接続文字列を TraceLog、Object Storage、JSON Lines エクスポートへ平文で記録しない
+26. The EqOrch system shall PostgreSQL、Vector DB、Object Storage へのアクセスを実行構成で制御できる
+27. The EqOrch system shall 外部記憶へ保存する payload から認証情報その他の機微情報を除外またはマスクできる
+28. The EqOrch system shall PostgreSQL 正本書き込み失敗、Vector DB または Object Storage の補助層書き込み失敗、replay 失敗、スキーマ不整合を運用上識別可能なイベントとして記録または通知できる
 
 ### Requirement 14: 前提条件
 **Objective:** As a プロジェクト保守者, I want システム成立に必要な前提条件を明確にしたい, so that 設計と運用の責任境界を曖昧にしない
@@ -221,11 +254,12 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 1. The EqOrch system shall 単一コンポーネントのエラーでオーケストレーションループ全体を停止させない
 2. The EqOrch system shall すべてのエラーを `ErrorInfo` モデルに従って記録する
 3. When LLM API がタイムアウトまたは HTTP 5xx を返したとき, the EqOrch system shall ポリシーのリトライ設定に従って再試行する
-4. If リトライ上限を超過した場合, then the EqOrch system shall 失敗した命令のエラー情報を状態のエラー記録欄へ保持し、次サイクルのコンシェルジュ入力に含める
-5. If 永続層への書き込みが失敗した場合, then the EqOrch system shall 次サイクルで再試行する
-6. If 永続層への書き込みがリトライ上限を超えて失敗した場合, then the EqOrch system shall ユーザへ通知してプロセス停止を許容する
+4. If リトライ上限を超過した場合, then the EqOrch system shall 失敗した命令のエラー情報を記録し、未消化の致命エラーまたは通知対象エラーに該当するもののみを状態のエラー記録欄へ保持して次サイクルのコンシェルジュ入力に含める
+5. If PostgreSQL 正本永続層への書き込みが失敗した場合, then the EqOrch system shall 次サイクルで再試行する
+6. If PostgreSQL 正本永続層への書き込みがリトライ上限を超えて失敗した場合, then the EqOrch system shall ユーザへ通知してプロセス停止を許容する
 7. If 部分的な状態変更が適用途中で失敗した場合, then the EqOrch system shall ロールバックして直前の整合状態を維持する
 8. If LLM API のリトライが上限を超過した場合, then the EqOrch system shall 対話モードでは `ask_user` 相当の問い合わせへ遷移し、バッチモードでは終了処理へ遷移する
+9. If Vector DB または Object Storage への補助書き込みが失敗した場合, then the EqOrch system shall その失敗を記録し、PostgreSQL 正本永続層へのコミットが成功している限りオーケストレーションループを継続できる
 
 ### Requirement 16: 実行結果と非同期ジョブ管理
 **Objective:** As a 研究者, I want 実行結果と非同期エンジンジョブを同じモデルで扱いたい, so that 失敗、部分成功、完了待ちを一貫して追跡できる
