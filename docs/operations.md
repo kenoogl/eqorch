@@ -66,5 +66,10 @@ replay / restart の成立条件は正本に限定する。補助層の欠損や
 
 ## PostgreSQL 正本運用時の留意点
 
-- スキーマ初期化方法、migration 導入有無、接続プール要否、終了コード方針は `8.7` で明文化する
-- 現時点では PostgreSQL を正本として使うが、本運用 readiness の判断項目は別途整理する
+PostgreSQL 正本運用 readiness の判断は [ADR 001](/Users/Daily/Development/EqOrch/.kiro/steering/adrs/001-postgresql-readiness.md) を正本とする。
+
+- スキーマ初期化は、現フェーズでは `WorkflowStore` / `TraceStore` 初期化時の `CREATE TABLE IF NOT EXISTS` を標準とする
+- migration フレームワークは現フェーズでは導入せず、互換性を壊す変更では明示的な移行手段を必須とする
+- 接続プールは現フェーズでは導入せず、単一 `ConnectionFactory` と永続化 worker の順序制御を標準とする
+- 正本失敗は `WorkflowStore` / `TraceStore` 失敗と replay 基点不整合、補助層失敗は `KnowledgeIndex` と将来の `ArtifactStore` 失敗とする
+- CLI 終了コードは `0` を正常終了、`1` を起動前検証失敗・正本失敗・replay / restart 不整合などの運用失敗とする
