@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: eqorch_test
+          POSTGRES_USER: eqorch
+          POSTGRES_PASSWORD: eqorch
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U eqorch -d eqorch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: python3 -m pip install -e .
+
+      - name: Run standard test suites
+        run: make test-all
+
+      - name: Run PostgreSQL integration suite
+        env:
+          TEST_DATABASE_URL: postgresql://eqorch:eqorch@127.0.0.1:55432/eqorch_test
+        run: make test-postgres
