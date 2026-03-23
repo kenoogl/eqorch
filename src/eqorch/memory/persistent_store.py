@@ -14,7 +14,7 @@ try:  # pragma: no cover - exercised in PostgreSQL environments
 except ImportError:  # pragma: no cover - unit tests inject sqlite
     psycopg = None
 
-from eqorch.app import ErrorCoordinator
+from eqorch.app.error_coordinator import ErrorCoordinator
 from eqorch.domain import (
     Action,
     Candidate,
@@ -390,7 +390,7 @@ class PersistentMemoryStore:
             committed=True,
             workflow_version=f"{batch.state_snapshot.session_id}:{batch.state_snapshot.step}",
             trace_version=f"{batch.state_snapshot.session_id}:{batch.state_snapshot.step}",
-            auxiliary_enqueued=bool(batch.auxiliary_artifacts and self._auxiliary_publisher is not None),
+            auxiliary_enqueued=self._auxiliary_publisher is not None,
         )
         self._idle.clear()
         self._queue.put(_PersistenceJob(batch=batch, result=result))
@@ -448,7 +448,7 @@ class PersistentMemoryStore:
         with self._lock:
             self._workflow_store.commit_state(batch.state_snapshot, batch.state_summaries)
             self._trace_store.append_entries(batch.state_snapshot.session_id, batch.trace_entries)
-            if self._auxiliary_publisher is not None and batch.auxiliary_artifacts:
+            if self._auxiliary_publisher is not None:
                 try:
                     self._auxiliary_publisher(batch)
                 except Exception as exc:  # pragma: no cover - exercised through integration test

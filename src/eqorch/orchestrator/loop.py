@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from eqorch.app import ErrorCoordinator
 from eqorch.domain import Action, MemoryEntry, Result, State
-from eqorch.memory import WorkingMemory
-from eqorch.memory import PersistenceCommit, PersistentMemoryStore
+from eqorch.memory.persistent_store import PersistenceCommit, PersistentMemoryStore
+from eqorch.memory.working_memory import WorkingMemory
 from eqorch.orchestrator.action_dispatcher import DispatchRecord
 from eqorch.orchestrator.decision_context import DecisionContextAssembler
 from eqorch.tracing import TraceRecorder

@@ -1,5 +1,6 @@
 """Memory management components."""
 
+from .knowledge_index import InMemoryVectorBackend, KnowledgeDocument, KnowledgeHit, KnowledgeIndex, VectorIndexBackend
 from .persistent_store import (
     ArtifactReference,
     PersistenceCommit,
@@ -16,6 +17,10 @@ from .working_memory import WorkingMemory
 
 __all__ = [
     "ArtifactReference",
+    "InMemoryVectorBackend",
+    "KnowledgeDocument",
+    "KnowledgeHit",
+    "KnowledgeIndex",
     "PersistenceCommit",
     "PersistenceCommitResult",
     "PersistenceNotification",
@@ -23,6 +28,7 @@ __all__ = [
     "PostgresConnectionFactory",
     "SqliteConnectionFactory",
     "TraceStore",
+    "VectorIndexBackend",
     "WorkflowStore",
     "ReplayFrame",
     "ReplayLoader",

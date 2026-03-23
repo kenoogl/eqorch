@@ -8,7 +8,7 @@ from uuid import uuid4
 from eqorch.app import ErrorCoordinator
 from eqorch.domain import LogEntry, Memory, Result, State
 from eqorch.domain.policy import PolicyContext
-from eqorch.memory import PersistenceCommit, PersistentMemoryStore, SqliteConnectionFactory
+from eqorch.memory import InMemoryVectorBackend, KnowledgeIndex, PersistenceCommit, PersistentMemoryStore, SqliteConnectionFactory
 
 
 def _state(*, session_id: str, step: int) -> State:
@@ -73,7 +73,12 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
-            store = PersistentMemoryStore(database_path, connection_factory=SqliteConnectionFactory(database_path))
+            knowledge_index = KnowledgeIndex(InMemoryVectorBackend())
+            store = PersistentMemoryStore(
+                database_path,
+                connection_factory=SqliteConnectionFactory(database_path),
+                auxiliary_publisher=knowledge_index.publish_commit,
+            )
             try:
                 result = store.commit(
                     PersistenceCommit(
@@ -102,7 +107,8 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         self.assertTrue(result.committed)
         self.assertEqual(result.workflow_version, f"{session_id}:4")
         self.assertEqual(result.trace_version, f"{session_id}:4")
-        self.assertFalse(result.auxiliary_enqueued)
+        self.assertTrue(result.auxiliary_enqueued)
+        self.assertGreaterEqual(len(knowledge_index.search("canonical", limit=5)), 0)
 
     def test_trace_store_loads_entries_and_exports_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -12,7 +12,15 @@ from eqorch.app import ErrorCoordinator, PolicyContextStore, ResearchConcierge, 
 from eqorch.domain import Memory, State
 from eqorch.domain.policy import PolicyContext
 from eqorch.gateways import BackendExecutionResult, BackendGateway, EngineGateway, LLMGateway, ResultNormalizer
-from eqorch.memory import ArtifactReference, PersistenceCommit, PersistentMemoryStore, ReplayLoader, SqliteConnectionFactory
+from eqorch.memory import (
+    ArtifactReference,
+    InMemoryVectorBackend,
+    KnowledgeIndex,
+    PersistenceCommit,
+    PersistentMemoryStore,
+    ReplayLoader,
+    SqliteConnectionFactory,
+)
 from eqorch.orchestrator import ActionDispatcher, DecisionContextAssembler, OrchestrationLoop
 from eqorch.registry import ComponentConfigLoader, EngineRegistry, SkillRegistry, ToolRegistry
 from eqorch.tracing import TraceRecorder
@@ -194,6 +202,85 @@ class IntegrationPathsTest(unittest.TestCase):
                         ),
                         state_summaries={"step": 1},
                         auxiliary_artifacts=(ArtifactReference(uri="s3://artifact", kind="report"),),
+                    )
+                )
+                self.assertTrue(store.flush(timeout=5))
+                restored = store.load_latest(session_id)
+            finally:
+                store.close()
+
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.step, 1)
+        self.assertEqual(len(notifications), 1)
+        self.assertFalse(notifications[0].should_stop)
+
+    def test_knowledge_index_indexes_candidates_and_auxiliary_failure_is_non_fatal(self) -> None:
+        notifications = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_path = Path(tmpdir) / "knowledge.db"
+            session_id = str(uuid4())
+            state = State(
+                policy_context=PolicyContext(goals=("goal",)),
+                workflow_memory=Memory(entries=[], max_entries=10, eviction_policy="lru"),
+                session_id=session_id,
+                step=2,
+                candidates=[],
+            )
+            from eqorch.domain import Candidate
+
+            state.candidates.append(
+                Candidate(
+                    id=str(uuid4()),
+                    equation="x + y",
+                    score=0.8,
+                    reasoning="linear relation discovered from prior fits",
+                    origin="Engine",
+                    created_at="2026-03-23T00:00:00Z",
+                    step=2,
+                )
+            )
+            index = KnowledgeIndex(InMemoryVectorBackend())
+            store = PersistentMemoryStore(
+                str(database_path),
+                connection_factory=SqliteConnectionFactory(str(database_path)),
+                notification_callback=notifications.append,
+                auxiliary_publisher=index.publish_commit,
+            )
+            try:
+                store.commit(PersistenceCommit(state_snapshot=state, state_summaries={"step": 2}))
+                self.assertTrue(store.flush(timeout=5))
+                restored = store.load_latest(session_id)
+                hits = index.search("linear relation", limit=3)
+            finally:
+                store.close()
+
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.step, 2)
+        self.assertGreaterEqual(len(hits), 1)
+        self.assertEqual(hits[0].source_kind, "candidate")
+        self.assertEqual(notifications, [])
+
+    def test_knowledge_index_failure_does_not_break_canonical_reproducibility(self) -> None:
+        notifications = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_path = Path(tmpdir) / "knowledge-fail.db"
+            session_id = str(uuid4())
+            store = PersistentMemoryStore(
+                str(database_path),
+                connection_factory=SqliteConnectionFactory(str(database_path)),
+                notification_callback=notifications.append,
+                auxiliary_publisher=lambda batch: (_ for _ in ()).throw(RuntimeError("knowledge index unavailable")),
+            )
+            try:
+                store.commit(
+                    PersistenceCommit(
+                        state_snapshot=State(
+                            policy_context=PolicyContext(goals=("goal",)),
+                            workflow_memory=Memory(entries=[], max_entries=10, eviction_policy="lru"),
+                            session_id=session_id,
+                            step=1,
+                        ),
+                        state_summaries={"step": 1},
                     )
                 )
                 self.assertTrue(store.flush(timeout=5))
