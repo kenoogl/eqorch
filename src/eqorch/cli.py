@@ -10,8 +10,8 @@ from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from eqorch.app import ErrorCoordinator, PolicyContextStore, ResearchConcierge, RetryPolicyExecutor
-from eqorch.app.runtime_checks import RuntimeCheckResult, RuntimeEnvironmentChecks
-from eqorch.domain import Memory, Result, State
+from eqorch.app.runtime_checks import RuntimeEnvironmentChecks
+from eqorch.domain import Memory, State
 from eqorch.gateways import (
     BackendExecutionResult,
     BackendGateway,
@@ -23,7 +23,7 @@ from eqorch.gateways import (
     PendingJobManager,
     ResultNormalizer,
 )
-from eqorch.memory import PersistentMemoryStore, SqliteConnectionFactory
+from eqorch.memory import PersistentMemoryStore, ReplayLoader
 from eqorch.orchestrator import ActionDispatcher, DecisionContextAssembler, LoopCycleResult, OrchestrationLoop
 from eqorch.registry import ComponentConfig, ComponentConfigLoader, EngineRegistry, SkillRegistry, ToolRegistry
 from eqorch.tracing import TraceRecorder
@@ -31,6 +31,7 @@ from eqorch.tracing import TraceRecorder
 
 class RuntimeBundle(Protocol):
     loop: OrchestrationLoop
+    persistent_store: PersistentMemoryStore
 
     def close(self) -> None: ...
 
@@ -93,7 +94,6 @@ class EqOrchApplication:
 
     adapter_resolver: Callable[[str, str], LLMProviderAdapter] = _default_adapter_resolver
     runtime_checks: RuntimeEnvironmentChecks = field(default_factory=RuntimeEnvironmentChecks)
-    component_loader: ComponentConfigLoader = field(default_factory=ComponentConfigLoader)
     policy_store_factory: Callable[[], PolicyContextStore] = PolicyContextStore
     runtime_builder: Callable[..., RuntimeBundle] | None = None
 
@@ -137,6 +137,50 @@ class EqOrchApplication:
                 session_id=session_id or str(uuid4()),
             )
             return self._run_session(bundle.loop, state, max_cycles=max_cycles)
+        finally:
+            bundle.close()
+
+    def start_resumed_session(
+        self,
+        *,
+        session_id: str,
+        policy_path: str | Path,
+        components_path: str | Path,
+        provider: str,
+        llm_adapter: str,
+        database_url: str,
+        max_cycles: int = 1,
+    ) -> StartupResult:
+        adapter = self.adapter_resolver(provider, llm_adapter)
+        gateway = LLMGateway(provider=provider, adapter=adapter)
+        startup = self.runtime_checks.validate_startup(
+            policy_path=policy_path,
+            components_path=components_path,
+            llm_gateway=gateway,
+            component_bootstrap=self._bootstrap_components,
+        )
+        if not startup.ok or startup.components is None:
+            return StartupResult(started=False, state=None, cycles=0, reasons=startup.reasons)
+
+        policy_store = self.policy_store_factory()
+        bundle = self._build_runtime(
+            provider=provider,
+            adapter=adapter,
+            database_url=database_url,
+            components=startup.components,
+            policy_store=policy_store,
+        )
+        try:
+            replay_loader = ReplayLoader(bundle.persistent_store)
+            frame = replay_loader.load_verified_frame(session_id)
+            if frame is None:
+                return StartupResult(
+                    started=False,
+                    state=None,
+                    cycles=0,
+                    reasons=(f"resume state not found for session: {session_id}",),
+                )
+            return self._run_session(bundle.loop, frame.base_state, max_cycles=max_cycles)
         finally:
             bundle.close()
 
@@ -244,6 +288,15 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--database-url", required=True)
         subparser.add_argument("--max-cycles", type=int, default=1)
         subparser.add_argument("--session-id")
+
+    resume = subparsers.add_parser("resume")
+    resume.add_argument("--session-id", required=True)
+    resume.add_argument("--policy", required=True)
+    resume.add_argument("--components", required=True)
+    resume.add_argument("--provider", required=True, choices=("openai", "anthropic", "google"))
+    resume.add_argument("--llm-adapter", required=True)
+    resume.add_argument("--database-url", required=True)
+    resume.add_argument("--max-cycles", type=int, default=1)
     return parser
 
 
@@ -251,21 +304,35 @@ def main(argv: list[str] | None = None, *, app: EqOrchApplication | None = None)
     parser = build_parser()
     args = parser.parse_args(argv)
     app = app or EqOrchApplication()
-    result = app.start_new_session(
-        mode=args.mode,
-        policy_path=args.policy,
-        components_path=args.components,
-        provider=args.provider,
-        llm_adapter=args.llm_adapter,
-        database_url=args.database_url,
-        max_cycles=args.max_cycles,
-        session_id=args.session_id,
-    )
+    if args.command == "resume":
+        result = app.start_resumed_session(
+            session_id=args.session_id,
+            policy_path=args.policy,
+            components_path=args.components,
+            provider=args.provider,
+            llm_adapter=args.llm_adapter,
+            database_url=args.database_url,
+            max_cycles=args.max_cycles,
+        )
+    else:
+        result = app.start_new_session(
+            mode=args.mode,
+            policy_path=args.policy,
+            components_path=args.components,
+            provider=args.provider,
+            llm_adapter=args.llm_adapter,
+            database_url=args.database_url,
+            max_cycles=args.max_cycles,
+            session_id=args.session_id,
+        )
     if not result.started:
         for reason in result.reasons:
             print(reason)
         return 1
-    print(f"started session {result.state.session_id} in {args.mode} mode; cycles={result.cycles}")
+    if args.command == "resume":
+        print(f"resumed session {result.state.session_id} in {result.state.current_mode} mode; cycles={result.cycles}")
+    else:
+        print(f"started session {result.state.session_id} in {args.mode} mode; cycles={result.cycles}")
     return 0
 
 
