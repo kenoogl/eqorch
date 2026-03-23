@@ -16,6 +16,8 @@ class EngineTransport(Protocol):
 
     def poll(self, endpoint: str, job_id: str, timeout_sec: int) -> dict[str, Any]: ...
 
+    def cancel(self, endpoint: str, job_id: str, timeout_sec: int) -> dict[str, Any]: ...
+
 
 class PendingJobManager:
     """Tracks async engine jobs by job id."""
@@ -115,6 +117,22 @@ class EngineGateway:
             self._pending_jobs.remove(job_id)
         return result
 
+    def cancel(self, job_id: str, timeout_sec: int = 3600) -> Result:
+        pending = self._pending_jobs.get(job_id)
+        if pending is None:
+            return Result(
+                status="error",
+                payload={},
+                error=ErrorInfo(code="JOB_NOT_FOUND", message=f"job not found: {job_id}", retryable=False),
+            )
+        engine = self._registry.get(pending.engine_name)
+        transport = self._transports[engine.protocol]
+        payload = transport.cancel(engine.endpoint, job_id, timeout_sec)
+        result = _normalize_transport_payload(payload)
+        if result.status == "success":
+            self._pending_jobs.remove(job_id)
+        return result
+
 
 def _partial_error(message: str) -> ErrorInfo:
     return ErrorInfo(code="PENDING_JOB", message=message, retryable=True)
@@ -131,4 +149,3 @@ def _normalize_transport_payload(payload: dict[str, Any]) -> Result:
             retryable=bool(error_payload["retryable"]),
         )
     return Result(status=status, payload=dict(payload.get("payload", {})), error=error)
-

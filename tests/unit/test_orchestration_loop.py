@@ -25,6 +25,7 @@ def ts() -> str:
 class FakeEngineTransport:
     def __init__(self) -> None:
         self._poll_results: list[dict[str, object]] = []
+        self.cancelled_job_ids: list[str] = []
 
     def run(self, endpoint: str, instruction: str, timeout_sec: int):
         return {"status": "success", "payload": {"instruction": instruction}}
@@ -39,6 +40,10 @@ class FakeEngineTransport:
 
     def queue_poll_result(self, payload: dict[str, object]) -> None:
         self._poll_results.append(payload)
+
+    def cancel(self, endpoint: str, job_id: str, timeout_sec: int):
+        self.cancelled_job_ids.append(job_id)
+        return {"status": "success", "payload": {"job_id": job_id, "cancelled": True}}
 
 
 class JsonActionAdapter:
@@ -274,6 +279,48 @@ class OrchestrationLoopTest(unittest.TestCase):
 
         self.assertEqual(len(second.state.pending_jobs), 1)
         self.assertEqual(second.state.pending_jobs[0].job_id, "job-1")
+
+    def test_terminate_cancels_pending_jobs_and_persists_final_state(self) -> None:
+        loop, store, transport = self._build_loop(
+            actions=[
+                [
+                    {
+                        "type": "run_engine",
+                        "target": "symbolic_regression",
+                        "parameters": {"instruction": "search", "async": True},
+                    }
+                ],
+                [
+                    {
+                        "type": "terminate",
+                        "target": "system",
+                        "parameters": {"reason": "stop"},
+                    }
+                ],
+            ]
+        )
+        state = self._state()
+        first = loop.run_cycle(state, issued_at=ts())
+        transport.queue_poll_result(
+            {
+                "status": "partial",
+                "payload": {"job_id": "job-1"},
+                "error": {"code": "PENDING_JOB", "message": "still running", "retryable": True},
+            }
+        )
+
+        second = loop.run_cycle(first.state, issued_at=ts())
+
+        self.assertFalse(second.should_continue)
+        self.assertEqual(transport.cancelled_job_ids, ["job-1"])
+        self.assertEqual(second.state.pending_jobs, [])
+        cancel_keys = [entry.key for entry in second.state.workflow_memory.entries]
+        self.assertIn("cancelled_jobs:2", cancel_keys)
+        self.assertTrue(store.flush(timeout=2))
+        restored = store.load_latest(state.session_id)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.step, 2)
+        self.assertEqual(restored.pending_jobs, [])
 
 
 if __name__ == "__main__":

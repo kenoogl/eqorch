@@ -136,6 +136,9 @@ class ActionDispatcher:
     def poll_pending_job(self, job_id: str, timeout_sec: int = DEFAULT_TIMEOUTS["run_engine"]) -> Result:
         return self._engine_gateway.poll(job_id, timeout_sec=timeout_sec)
 
+    def cancel_pending_job(self, job_id: str, timeout_sec: int = DEFAULT_TIMEOUTS["run_engine"]) -> Result:
+        return self._engine_gateway.cancel(job_id, timeout_sec=timeout_sec)
+
     def _validate_batch(self, actions: list[Action]) -> None:
         if not actions:
             raise ValueError("action batch must not be empty")

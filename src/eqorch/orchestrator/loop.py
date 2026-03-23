@@ -105,6 +105,7 @@ class OrchestrationLoop:
                 )
             trace_entries.append(plan.log_entry)
             if record.action.type == "terminate":
+                self._cancel_pending_jobs(memory, issued_at=issued_at)
                 should_continue = False
 
         memory.set_pending_jobs(list(self._dispatcher.list_pending_jobs()))
@@ -142,6 +143,24 @@ class OrchestrationLoop:
             elif result.error is not None:
                 memory.record_error(job.action_id, result.error)
         memory.set_pending_jobs(remaining)
+
+    def _cancel_pending_jobs(self, memory: WorkingMemory, *, issued_at: str) -> None:
+        cancel_results = []
+        for job in list(memory.state.pending_jobs):
+            result = self._dispatcher.cancel_pending_job(job.job_id)
+            cancel_results.append({"job_id": job.job_id, "status": result.status})
+            if result.status != "success" and result.error is not None:
+                memory.record_error(job.action_id, result.error)
+        if cancel_results:
+            memory.upsert_memory_entry(
+                MemoryEntry(
+                    key=f"cancelled_jobs:{memory.state.step}",
+                    value={"jobs": cancel_results},
+                    created_at=issued_at,
+                    last_accessed=issued_at,
+                )
+            )
+        memory.set_pending_jobs(list(self._dispatcher.list_pending_jobs()))
 
 
 __all__ = ["LoopCycleResult", "OrchestrationLoop"]
