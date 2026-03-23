@@ -14,7 +14,10 @@ from eqorch.domain.policy import PolicyContext
 from eqorch.gateways import BackendExecutionResult, BackendGateway, EngineGateway, LLMGateway, ResultNormalizer
 from eqorch.memory import (
     ArtifactReference,
+    ArtifactStore,
+    CompositeAuxiliaryPublisher,
     InMemoryVectorBackend,
+    InMemoryArtifactBackend,
     KnowledgeIndex,
     PersistenceCommit,
     PersistentMemoryStore,
@@ -78,6 +81,12 @@ class StubTransport:
 class StubBackendRunner:
     def run(self, command, config):
         return BackendExecutionResult(status="success", numeric_results={"mse": 0.1}, error=None)
+
+
+class FailingArtifactBackend:
+    def put_object(self, key: str, payload: bytes, *, content_type: str) -> str:
+        del key, payload, content_type
+        raise RuntimeError("artifact store unavailable")
 
 
 class IntegrationPathsTest(unittest.TestCase):
@@ -185,11 +194,12 @@ class IntegrationPathsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database_path = Path(tmpdir) / "aux.db"
             session_id = str(uuid4())
+            artifact_store = ArtifactStore(FailingArtifactBackend())
             store = PersistentMemoryStore(
                 str(database_path),
                 connection_factory=SqliteConnectionFactory(str(database_path)),
                 notification_callback=notifications.append,
-                auxiliary_publisher=lambda batch: (_ for _ in ()).throw(RuntimeError("artifact store unavailable")),
+                auxiliary_publisher=artifact_store.publish_commit,
             )
             try:
                 store.commit(
@@ -258,6 +268,43 @@ class IntegrationPathsTest(unittest.TestCase):
         self.assertEqual(restored.step, 2)
         self.assertGreaterEqual(len(hits), 1)
         self.assertEqual(hits[0].source_kind, "candidate")
+
+    def test_artifact_store_persists_auxiliary_references_without_affecting_canonical_state(self) -> None:
+        notifications = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_path = Path(tmpdir) / "artifact.db"
+            artifact_store = ArtifactStore(InMemoryArtifactBackend())
+            session_id = str(uuid4())
+            store = PersistentMemoryStore(
+                str(database_path),
+                connection_factory=SqliteConnectionFactory(str(database_path)),
+                notification_callback=notifications.append,
+                auxiliary_publisher=artifact_store.publish_commit,
+            )
+            try:
+                store.commit(
+                    PersistenceCommit(
+                        state_snapshot=State(
+                            policy_context=PolicyContext(goals=("goal",)),
+                            workflow_memory=Memory(entries=[], max_entries=10, eviction_policy="lru"),
+                            session_id=session_id,
+                            step=3,
+                        ),
+                        state_summaries={"step": 3},
+                        auxiliary_artifacts=(
+                            ArtifactReference(uri="file:///tmp/raw.log", kind="raw_log"),
+                            ArtifactReference(uri="file:///tmp/result.json", kind="report"),
+                        ),
+                    )
+                )
+                self.assertTrue(store.flush(timeout=5))
+                restored = store.load_latest(session_id)
+            finally:
+                store.close()
+
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.step, 3)
+        self.assertEqual(len(artifact_store.list_manifests()), 2)
         self.assertEqual(notifications, [])
 
     def test_knowledge_index_failure_does_not_break_canonical_reproducibility(self) -> None:

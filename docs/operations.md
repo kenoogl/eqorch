@@ -12,15 +12,15 @@ CLI の基本的な使い方やセットアップは [README.md](/Users/Daily/De
 
 ## 現フェーズの対象範囲
 
-- 現フェーズ実装対象: `KnowledgeIndex`
-- 後続開発対象: `ArtifactStore`
+- optional 補助層: `KnowledgeIndex`
+- optional 補助層: `ArtifactStore`
 
-`KnowledgeIndex` は Vector DB を用いる optional な補助インデックスであり、PostgreSQL 正本から再構築可能であることを前提に運用する。`ArtifactStore` は現時点では未実装で、Object Storage 連携は後続開発で扱う。
+`KnowledgeIndex` は Vector DB を用いる optional な補助インデックスであり、PostgreSQL 正本から再構築可能であることを前提に運用する。`ArtifactStore` は Object Storage を用いる optional な補助ストアであり、大容量ログ、外部生成物、中間ファイルを参照 URI 付きで保持する。
 
 ## 現行実装における正本と補助層
 
 - 正本: PostgreSQL 上の `WorkflowStore` と `TraceStore`
-- 補助層: `KnowledgeIndex`、将来の `ArtifactStore`
+- 補助層: `KnowledgeIndex`、`ArtifactStore`
 
 replay / restart の成立条件は正本に限定する。補助層の欠損や失敗だけでは再現性を失ったとみなさない。
 
@@ -41,7 +41,7 @@ replay / restart の成立条件は正本に限定する。補助層の欠損や
 次は補助層失敗として扱う。
 
 - `KnowledgeIndex` 反映失敗
-- 将来の `ArtifactStore` 書き込み失敗
+- `ArtifactStore` 書き込み失敗
 
 補助層失敗は記録と再試行の対象に留め、PostgreSQL 正本コミット成功時はループ継続を優先する。
 
@@ -71,5 +71,5 @@ PostgreSQL 正本運用 readiness の判断は [ADR 001](/Users/Daily/Developmen
 - スキーマ初期化は、現フェーズでは `WorkflowStore` / `TraceStore` 初期化時の `CREATE TABLE IF NOT EXISTS` を標準とする
 - migration フレームワークは現フェーズでは導入せず、互換性を壊す変更では明示的な移行手段を必須とする
 - 接続プールは現フェーズでは導入せず、単一 `ConnectionFactory` と永続化 worker の順序制御を標準とする
-- 正本失敗は `WorkflowStore` / `TraceStore` 失敗と replay 基点不整合、補助層失敗は `KnowledgeIndex` と将来の `ArtifactStore` 失敗とする
+- 正本失敗は `WorkflowStore` / `TraceStore` 失敗と replay 基点不整合、補助層失敗は `KnowledgeIndex` と `ArtifactStore` 失敗とする
 - CLI 終了コードは `0` を正常終了、`1` を起動前検証失敗・正本失敗・replay / restart 不整合などの運用失敗とする

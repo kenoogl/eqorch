@@ -116,8 +116,7 @@
   - _Requirements: 15.1, 15.2, 15.4, 15.6_
 
 - [x] 5. 永続化、トレース、再現機構を実装する
-  - `5.1` から `5.3` は完了済みとし、現行フェーズでは `5.4` を含めて完了判定する
-  - `5.5` は後続開発タスクとして扱い、現行フェーズの完了判定から除外する
+  - `5.1` から `5.5` までを含めて、正本永続化と optional 補助層の実装を完了判定とする
 - [x] 5.1 PersistentMemoryStore facade と WorkflowStore を実装する
   - `WorkflowStore` で State、Candidate、Evaluation、Policy 改訂履歴、モード遷移履歴を PostgreSQL 正本へ保存する
   - `PersistentMemoryStore` facade で `WorkflowStore`、`TraceStore`、optional な補助層の書込み順を調停する
@@ -149,10 +148,9 @@
   - 依存: 5.1 完了後。5.2, 5.3 と独立して並行実装可能
   - 完了条件: optional 構成での埋め込み登録テストと、Index 失敗時に正本再現性が損なわれないことを確認するテストが通る
   - _Requirements: 8.14, 8.17, 9.7, 12.19, 13.17_
-- [ ] 5.5 後続開発: optional な Object Storage 連携を実装する
+- [x] 5.5 optional な Object Storage 連携を実装する
   - 大容量ログ、外部生成物、中間ファイルを Object Storage へ保存し、正本側には参照 URI のみ保持する
   - Object Storage 失敗時は補助層失敗として扱い、正本再現性を壊さない
-  - 現行マイルストーンでは着手せず、後続開発で `ArtifactStore` を導入する
   - コンポーネント: `ArtifactStore`
   - 依存: 5.1 完了後。5.2, 5.3, 5.4 と独立して並行実装可能
   - 完了条件: optional 構成でのオブジェクト保存テストと、補助層失敗時の継続性確認テストが通る
@@ -212,8 +210,7 @@
 - [x] 8.1 結合テストでレジストリ、ゲートウェイ、永続化、非同期実行の統合を検証する
   - `components.yaml` 初期化、REST/gRPC スタブ接続、`run-async`/poll、PostgreSQL 正本復元の代表シナリオを確認する
   - 永続化失敗の再試行上限超過時に通知と停止許容へ遷移することを確認する
-  - 現行フェーズで導入する optional な Vector DB 失敗が正本再現性を壊さないことを確認する
-  - Object Storage は後続開発対象として、現行フェーズでは failure semantics の整合を維持する
+  - optional な Vector DB と Object Storage の失敗が正本再現性を壊さないことを確認する
   - PostgreSQL 実 DB を用いた継続検証経路で、WorkflowStore 保存、TraceStore 保存、ReplayLoader 復元を確認する
   - 依存: 3.1, 3.2, 3.3, 3.4, 5.1, 5.2, 5.3, 5.4, 6.2 完了後
   - 完了条件: 設計書の結合テスト戦略に記載した代表経路が、PostgreSQL 実 DB を含む自動実行で通る
@@ -245,7 +242,7 @@
   - _Requirements: 13.19, 13.23, 13.24_
 - [x] 8.6 README と運用ドキュメントを整備する
   - セットアップ、CLI 起動、batch 起動、resume、PostgreSQL 実 DB 検証手順、必要環境変数を README または運用ドキュメントへ記載する
-  - `KnowledgeIndex` が現フェーズ対象、`ArtifactStore` が後続開発対象であることを明記する
+  - `KnowledgeIndex` と `ArtifactStore` が optional な補助層であることを明記する
   - PostgreSQL 正本運用時の注意事項と、正本失敗 / 補助層失敗の failure semantics を文書化する
   - 依存: 7.1, 7.2, 8.1, 8.5 完了後
   - 完了条件: README または運用ドキュメントから、初回セットアップ、起動、再開、PostgreSQL 実 DB テスト実行、現行マイルストーン範囲が追える

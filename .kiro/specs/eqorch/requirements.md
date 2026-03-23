@@ -116,7 +116,7 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 ### Requirement 8: ワークフローメモリ
 **Objective:** As a 研究者, I want 探索の状態と履歴を永続化したい, so that セッションをまたいで再現可能に探索を継続できる
 
-現行実装フェーズでは `KnowledgeIndex` を優先実装対象とし、`ArtifactStore` は後続開発で導入する optional 拡張として扱う。
+現行実装フェーズでは `KnowledgeIndex` と `ArtifactStore` を optional な補助層実装対象として扱う。
 
 #### Acceptance Criteria
 1. The EqOrch system shall 外部記憶アーキテクチャとして、PostgreSQL 正本層、Trace と replay の記録層、optional な Vector DB 意味検索層、optional な Object Storage 生成物保管層を役割分離して扱う

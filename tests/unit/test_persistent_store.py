@@ -8,7 +8,17 @@ from uuid import uuid4
 from eqorch.app import ErrorCoordinator
 from eqorch.domain import LogEntry, Memory, Result, State
 from eqorch.domain.policy import PolicyContext
-from eqorch.memory import InMemoryVectorBackend, KnowledgeIndex, PersistenceCommit, PersistentMemoryStore, SqliteConnectionFactory
+from eqorch.memory import (
+    ArtifactReference,
+    ArtifactStore,
+    CompositeAuxiliaryPublisher,
+    InMemoryArtifactBackend,
+    InMemoryVectorBackend,
+    KnowledgeIndex,
+    PersistenceCommit,
+    PersistentMemoryStore,
+    SqliteConnectionFactory,
+)
 
 
 def _state(*, session_id: str, step: int) -> State:
@@ -74,10 +84,14 @@ class PersistentMemoryStoreTest(unittest.TestCase):
             database_path = str(Path(tmpdir) / "memory.db")
             session_id = str(uuid4())
             knowledge_index = KnowledgeIndex(InMemoryVectorBackend())
+            artifact_store = ArtifactStore(InMemoryArtifactBackend())
             store = PersistentMemoryStore(
                 database_path,
                 connection_factory=SqliteConnectionFactory(database_path),
-                auxiliary_publisher=knowledge_index.publish_commit,
+                auxiliary_publisher=CompositeAuxiliaryPublisher(
+                    knowledge_index.publish_commit,
+                    artifact_store.publish_commit,
+                ),
             )
             try:
                 result = store.commit(
@@ -98,6 +112,9 @@ class PersistentMemoryStoreTest(unittest.TestCase):
                                 timestamp="2026-03-22T00:00:00Z",
                             ),
                         ),
+                        auxiliary_artifacts=(
+                            ArtifactReference(uri="s3://artifact/report.json", kind="report"),
+                        ),
                     )
                 )
                 self.assertTrue(store.flush(timeout=2))
@@ -109,6 +126,7 @@ class PersistentMemoryStoreTest(unittest.TestCase):
         self.assertEqual(result.trace_version, f"{session_id}:4")
         self.assertTrue(result.auxiliary_enqueued)
         self.assertGreaterEqual(len(knowledge_index.search("canonical", limit=5)), 0)
+        self.assertEqual(len(artifact_store.list_manifests()), 1)
 
     def test_trace_store_loads_entries_and_exports_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
