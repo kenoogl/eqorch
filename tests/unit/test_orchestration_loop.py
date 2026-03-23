@@ -23,6 +23,9 @@ def ts() -> str:
 
 
 class FakeEngineTransport:
+    def __init__(self) -> None:
+        self._poll_results: list[dict[str, object]] = []
+
     def run(self, endpoint: str, instruction: str, timeout_sec: int):
         return {"status": "success", "payload": {"instruction": instruction}}
 
@@ -30,23 +33,35 @@ class FakeEngineTransport:
         return {"job_id": "job-1"}
 
     def poll(self, endpoint: str, job_id: str, timeout_sec: int):
+        if self._poll_results:
+            return self._poll_results.pop(0)
         return {"status": "success", "payload": {"job_id": job_id}}
+
+    def queue_poll_result(self, payload: dict[str, object]) -> None:
+        self._poll_results.append(payload)
 
 
 class JsonActionAdapter:
-    def __init__(self, actions: list[dict[str, object]]):
-        self._payload = {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(actions),
+    def __init__(self, actions: list[list[dict[str, object]]] | list[dict[str, object]]):
+        if actions and isinstance(actions[0], dict):  # type: ignore[index]
+            actions = [actions]  # type: ignore[assignment]
+        self._payloads = [
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(batch),
+                        }
                     }
-                }
-            ]
-        }
+                ]
+            }
+            for batch in actions  # type: ignore[arg-type]
+        ]
 
     def decide(self, payload):
-        return self._payload
+        if len(self._payloads) == 1:
+            return self._payloads[0]
+        return self._payloads.pop(0)
 
 
 class OrchestrationLoopTest(unittest.TestCase):
@@ -57,7 +72,7 @@ class OrchestrationLoopTest(unittest.TestCase):
             session_id=str(uuid4()),
         )
 
-    def _build_loop(self, *, actions: list[dict[str, object]]):
+    def _build_loop(self, *, actions: list[list[dict[str, object]]] | list[dict[str, object]]):
         tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
         root = Path(tempdir.name)
@@ -122,12 +137,13 @@ class OrchestrationLoopTest(unittest.TestCase):
         tool_registry.register_from_config(config.tools)
         engine_registry.register_from_config(config.engines)
         trace_recorder = TraceRecorder()
+        transport = FakeEngineTransport()
         dispatcher = ActionDispatcher(
             skill_registry=skill_registry,
             tool_registry=tool_registry,
             engine_gateway=EngineGateway(
                 registry=engine_registry,
-                transports={"rest": FakeEngineTransport()},
+                transports={"rest": transport},
             ),
             backend_gateway=BackendGateway(backends=(), runners={}),
             policy_store=PolicyContextStore(initial_policy=PolicyContext(goals=("goal",))),
@@ -146,10 +162,10 @@ class OrchestrationLoopTest(unittest.TestCase):
             persistent_store=store,
             error_coordinator=ErrorCoordinator(),
         )
-        return loop, store
+        return loop, store, transport
 
     def test_runs_basic_cycle_and_updates_state(self) -> None:
-        loop, store = self._build_loop(
+        loop, store, _ = self._build_loop(
             actions=[
                 {
                     "type": "switch_mode",
@@ -172,7 +188,7 @@ class OrchestrationLoopTest(unittest.TestCase):
         self.assertEqual(restored.current_mode, "batch")
 
     def test_terminate_action_exits_normally(self) -> None:
-        loop, store = self._build_loop(
+        loop, store, _ = self._build_loop(
             actions=[
                 {
                     "type": "terminate",
@@ -191,6 +207,73 @@ class OrchestrationLoopTest(unittest.TestCase):
         entries = store.trace_store.load_entries(state.session_id)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].action.type, "terminate")
+
+    def test_registers_async_job_and_polls_completion(self) -> None:
+        loop, store, transport = self._build_loop(
+            actions=[
+                [
+                    {
+                        "type": "run_engine",
+                        "target": "symbolic_regression",
+                        "parameters": {"instruction": "search", "async": True},
+                    }
+                ],
+                [
+                    {
+                        "type": "switch_mode",
+                        "target": "system",
+                        "parameters": {"target_mode": "batch", "reason": "polled"},
+                    }
+                ],
+            ]
+        )
+        state = self._state()
+        first = loop.run_cycle(state, issued_at=ts())
+        transport.queue_poll_result({"status": "success", "payload": {"job_id": "job-1", "score": 0.1}})
+
+        second = loop.run_cycle(first.state, issued_at=ts())
+
+        self.assertEqual(len(first.state.pending_jobs), 1)
+        self.assertEqual(first.state.pending_jobs[0].job_id, "job-1")
+        self.assertEqual(second.state.pending_jobs, [])
+        keys = [entry.key for entry in second.state.workflow_memory.entries]
+        self.assertIn("pending_job:job-1", keys)
+        self.assertEqual(second.state.current_mode, "batch")
+        self.assertTrue(store.flush(timeout=2))
+
+    def test_partial_poll_keeps_pending_job(self) -> None:
+        loop, _, transport = self._build_loop(
+            actions=[
+                [
+                    {
+                        "type": "run_engine",
+                        "target": "symbolic_regression",
+                        "parameters": {"instruction": "search", "async": True},
+                    }
+                ],
+                [
+                    {
+                        "type": "switch_mode",
+                        "target": "system",
+                        "parameters": {"target_mode": "interactive", "reason": "still waiting"},
+                    }
+                ],
+            ]
+        )
+        state = self._state()
+        first = loop.run_cycle(state, issued_at=ts())
+        transport.queue_poll_result(
+            {
+                "status": "partial",
+                "payload": {"job_id": "job-1"},
+                "error": {"code": "PENDING_JOB", "message": "still running", "retryable": True},
+            }
+        )
+
+        second = loop.run_cycle(first.state, issued_at=ts())
+
+        self.assertEqual(len(second.state.pending_jobs), 1)
+        self.assertEqual(second.state.pending_jobs[0].job_id, "job-1")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from eqorch.app import ErrorCoordinator, PolicyContextStore
-from eqorch.domain import Action, ErrorInfo, Request, Result, SkillRequest, State
+from eqorch.domain import Action, PendingJob, ErrorInfo, Request, Result, SkillRequest, State
 from eqorch.gateways import BackendGateway, EngineGateway
 from eqorch.registry import SkillRegistry, ToolRegistry
 from eqorch.tracing import TracePlan, TraceRecorder
@@ -129,6 +129,12 @@ class ActionDispatcher:
         if action.type == "terminate":
             return Result(status="success", payload={"terminate": True, "reason": params.get("reason")}, error=None)
         raise ValueError(f"unsupported action type: {action.type}")
+
+    def list_pending_jobs(self) -> tuple[PendingJob, ...]:
+        return self._engine_gateway.pending_jobs.all()
+
+    def poll_pending_job(self, job_id: str, timeout_sec: int = DEFAULT_TIMEOUTS["run_engine"]) -> Result:
+        return self._engine_gateway.poll(job_id, timeout_sec=timeout_sec)
 
     def _validate_batch(self, actions: list[Action]) -> None:
         if not actions:
