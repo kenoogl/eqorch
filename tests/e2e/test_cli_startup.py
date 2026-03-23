@@ -10,8 +10,11 @@ from uuid import uuid4
 from eqorch.cli import EqOrchApplication, main
 from eqorch.domain import Action, LogEntry, Memory, Result, State
 from eqorch.domain.policy import PolicyContext
+from eqorch.app import ErrorCoordinator, PolicyContextStore, ResearchConcierge, RetryPolicyExecutor
+from eqorch.gateways import BackendExecutionResult, BackendGateway, EngineGateway, EngineTransport, LLMGateway, ResultNormalizer
 from eqorch.memory import PersistenceCommit, PersistentMemoryStore, SqliteConnectionFactory
-from eqorch.orchestrator import LoopCycleResult
+from eqorch.orchestrator import ActionDispatcher, DecisionContextAssembler, LoopCycleResult, OrchestrationLoop
+from eqorch.registry import EngineRegistry, SkillRegistry, ToolRegistry
 
 
 class TerminateAdapter:
@@ -48,6 +51,68 @@ class GoogleTerminateAdapter:
                 }
             ]
         }
+
+
+class StartupThenTimeoutAdapter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def decide(self, payload):
+        self.calls += 1
+        if self.calls == 1:
+            return TerminateAdapter().decide(payload)
+        raise TimeoutError("provider unavailable")
+
+
+class StartupThenAsyncTerminateAdapter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def decide(self, payload):
+        self.calls += 1
+        if self.calls == 1:
+            return TerminateAdapter().decide(payload)
+        if self.calls == 2:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '[{"type":"run_engine","target":"dummy_engine","parameters":{"instruction":"search","async":true},'
+                                '"issued_at":"2026-03-23T00:00:00Z","action_id":"00000000-0000-4000-8000-000000000031"}]'
+                            )
+                        }
+                    }
+                ]
+            }
+        return TerminateAdapter().decide(payload)
+
+
+class PendingTransport:
+    def __init__(self) -> None:
+        self.cancelled: list[str] = []
+
+    def run(self, endpoint: str, instruction: str, timeout_sec: int):
+        return {"status": "success", "payload": {"instruction": instruction}}
+
+    def run_async(self, endpoint: str, instruction: str, timeout_sec: int):
+        return {"job_id": "job-1"}
+
+    def poll(self, endpoint: str, job_id: str, timeout_sec: int):
+        return {
+            "status": "partial",
+            "payload": {"job_id": job_id},
+            "error": {"code": "PENDING_JOB", "message": "still running", "retryable": True},
+        }
+
+    def cancel(self, endpoint: str, job_id: str, timeout_sec: int):
+        self.cancelled.append(job_id)
+        return {"status": "success", "payload": {"job_id": job_id, "cancelled": True}}
+
+
+class NullBackendRunner:
+    def run(self, command, config):
+        return BackendExecutionResult(status="success", numeric_results={"mse": 0.0}, error=None)
 
 
 @dataclass(slots=True)
@@ -279,8 +344,82 @@ class CliStartupTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(seen_modes, ["interactive"])
 
+    def test_interactive_retry_exhaustion_falls_back_to_ask_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = _write_fixture_files(root, include_engine=False)
+            app = EqOrchApplication(
+                adapter_resolver=lambda provider, spec: StartupThenTimeoutAdapter(),
+                runtime_builder=_real_runtime_builder,
+            )
 
-def _write_fixture_files(root: Path) -> dict[str, Path]:
+            result = app.start_new_session(
+                mode="interactive",
+                policy_path=paths["policy"],
+                components_path=paths["components"],
+                provider="openai",
+                llm_adapter="fixtures:TimeoutAdapter",
+                database_url=f"sqlite:///{root / 'interactive.db'}",
+                max_cycles=1,
+            )
+
+        self.assertTrue(result.started)
+        self.assertEqual(result.cycles, 1)
+        self.assertIn("00000000-0000-4000-8000-000000000001", result.state.last_errors)
+        self.assertEqual(result.state.last_errors["00000000-0000-4000-8000-000000000001"].code, "USER_INPUT_REQUIRED")
+
+    def test_batch_retry_exhaustion_falls_back_to_terminate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = _write_fixture_files(root, include_engine=False)
+            app = EqOrchApplication(
+                adapter_resolver=lambda provider, spec: StartupThenTimeoutAdapter(),
+                runtime_builder=_real_runtime_builder,
+            )
+
+            result = app.start_new_session(
+                mode="batch",
+                policy_path=paths["policy"],
+                components_path=paths["components"],
+                provider="openai",
+                llm_adapter="fixtures:TimeoutAdapter",
+                database_url=f"sqlite:///{root / 'batch.db'}",
+                max_cycles=1,
+            )
+
+        self.assertTrue(result.started)
+        self.assertEqual(result.cycles, 1)
+        self.assertIn("00000000-0000-4000-8000-000000000002", result.state.last_errors)
+        self.assertEqual(result.state.last_errors["00000000-0000-4000-8000-000000000002"].code, "TIMEOUT")
+
+    def test_terminate_with_pending_job_cancels_job_in_end_to_end_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = _write_fixture_files(root, include_engine=True)
+            transport = PendingTransport()
+            app = EqOrchApplication(
+                adapter_resolver=lambda provider, spec: StartupThenAsyncTerminateAdapter(),
+                runtime_builder=lambda **kwargs: _real_runtime_builder(engine_transport=transport, **kwargs),
+            )
+
+            result = app.start_new_session(
+                mode="interactive",
+                policy_path=paths["policy"],
+                components_path=paths["components"],
+                provider="openai",
+                llm_adapter="fixtures:AsyncTerminateAdapter",
+                database_url=f"sqlite:///{root / 'pending.db'}",
+                max_cycles=2,
+            )
+
+        self.assertTrue(result.started)
+        self.assertEqual(result.cycles, 2)
+        self.assertEqual(transport.cancelled, ["job-1"])
+        cancelled = [entry for entry in result.state.workflow_memory.entries if entry.key.startswith("cancelled_jobs:")]
+        self.assertEqual(len(cancelled), 1)
+
+
+def _write_fixture_files(root: Path, *, include_engine: bool = False) -> dict[str, Path]:
     package_root = root / "fixtures"
     package_root.mkdir()
     (package_root / "__init__.py").write_text("", encoding="utf-8")
@@ -311,7 +450,7 @@ def _write_fixture_files(root: Path) -> dict[str, Path]:
     policy_path = root / "policy.yaml"
     policy_path.write_text("goals:\n  - find equation\n", encoding="utf-8")
     components_path = root / "components.yaml"
-    components_path.write_text(
+    parts = [
         textwrap.dedent(
             """
             skills:
@@ -322,17 +461,75 @@ def _write_fixture_files(root: Path) -> dict[str, Path]:
               - name: dummy_tool
                 module: fixtures.tool_impl
                 class: DummyTool
-            engines: []
-            backends: []
             """
-        ).strip(),
-        encoding="utf-8",
-    )
+        ).strip()
+    ]
+    if include_engine:
+        parts.append(
+            textwrap.dedent(
+                """
+                engines:
+                  - name: dummy_engine
+                    endpoint: http://localhost:8080/engine
+                    protocol: rest
+                """
+            ).strip()
+        )
+    else:
+        parts.append("engines: []")
+    parts.append("backends: []")
+    components_path.write_text("\n".join(parts), encoding="utf-8")
     import sys
 
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     return {"policy": policy_path, "components": components_path}
+
+
+def _real_runtime_builder(*, provider, adapter, database_url, components, policy_store, engine_transport=None, **_):
+    skill_registry = SkillRegistry()
+    skill_registry.register_from_config(components.skills)
+    tool_registry = ToolRegistry()
+    tool_registry.register_from_config(components.tools)
+    engine_registry = EngineRegistry()
+    engine_registry.register_from_config(components.engines)
+    transport = engine_transport or PendingTransport()
+    engine_gateway = EngineGateway(engine_registry, transports={"rest": transport, "grpc": transport})
+    backend_gateway = BackendGateway(
+        components.backends,
+        runners={backend.name: NullBackendRunner() for backend in components.backends},
+        normalizer=ResultNormalizer(),
+    )
+    error_coordinator = ErrorCoordinator()
+    trace_recorder = __import__("eqorch.tracing", fromlist=["TraceRecorder"]).TraceRecorder()
+    database_path = database_url.removeprefix("sqlite:///")
+    persistent_store = PersistentMemoryStore(
+        database_url=database_url,
+        connection_factory=SqliteConnectionFactory(database_path),
+    )
+    dispatcher = ActionDispatcher(
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+        engine_gateway=engine_gateway,
+        backend_gateway=backend_gateway,
+        policy_store=policy_store,
+        error_coordinator=error_coordinator,
+        trace_recorder=trace_recorder,
+    )
+    concierge = ResearchConcierge(
+        gateway=LLMGateway(provider=provider, adapter=adapter),
+        error_coordinator=error_coordinator,
+        retry_executor=RetryPolicyExecutor(),
+    )
+    loop = OrchestrationLoop(
+        context_assembler=DecisionContextAssembler(),
+        concierge=concierge,
+        dispatcher=dispatcher,
+        trace_recorder=trace_recorder,
+        persistent_store=persistent_store,
+        error_coordinator=error_coordinator,
+    )
+    return FakeBundle(loop=loop, persistent_store=persistent_store)
 
 
 if __name__ == "__main__":
