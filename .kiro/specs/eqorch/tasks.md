@@ -243,7 +243,7 @@
   - 依存: 8.1, 8.2, 8.3, 8.4 完了後
   - 完了条件: 各検証カテゴリが標準実行導線で個別実行でき、PostgreSQL 実 DB テストの起動条件が README などの利用者向け文書に記載されている
   - _Requirements: 13.19, 13.23, 13.24_
-- [ ] 8.6 README と運用ドキュメントを整備する
+- [x] 8.6 README と運用ドキュメントを整備する
   - セットアップ、CLI 起動、batch 起動、resume、PostgreSQL 実 DB 検証手順、必要環境変数を README または運用ドキュメントへ記載する
   - `KnowledgeIndex` が現フェーズ対象、`ArtifactStore` が後続開発対象であることを明記する
   - PostgreSQL 正本運用時の注意事項と、正本失敗 / 補助層失敗の failure semantics を文書化する
