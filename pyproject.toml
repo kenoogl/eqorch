@@ -12,6 +12,9 @@ dependencies = [
   "psycopg[binary]>=3.2",
 ]
 
+[project.scripts]
+eqorch = "eqorch.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
