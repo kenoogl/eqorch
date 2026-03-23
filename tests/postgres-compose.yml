@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: eqorch_test
+      POSTGRES_USER: eqorch
+      POSTGRES_PASSWORD: eqorch
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eqorch -d eqorch_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
