@@ -359,6 +359,7 @@ class PersistentMemoryStore:
         error_coordinator: ErrorCoordinator | None = None,
         max_retries: int = 3,
         notification_callback: Callable[[PersistenceNotification], None] | None = None,
+        auxiliary_publisher: Callable[[PersistenceCommit], None] | None = None,
     ) -> None:
         self._database_url = database_url
         self._connection_factory = connection_factory or PostgresConnectionFactory(database_url)
@@ -367,6 +368,7 @@ class PersistentMemoryStore:
         self._error_coordinator = error_coordinator or ErrorCoordinator()
         self._max_retries = max_retries
         self._notification_callback = notification_callback
+        self._auxiliary_publisher = auxiliary_publisher
         self._notifications: list[PersistenceNotification] = []
         self._queue: queue.Queue[_PersistenceJob | None] = queue.Queue()
         self._idle = Event()
@@ -388,7 +390,7 @@ class PersistentMemoryStore:
             committed=True,
             workflow_version=f"{batch.state_snapshot.session_id}:{batch.state_snapshot.step}",
             trace_version=f"{batch.state_snapshot.session_id}:{batch.state_snapshot.step}",
-            auxiliary_enqueued=bool(batch.auxiliary_artifacts),
+            auxiliary_enqueued=bool(batch.auxiliary_artifacts and self._auxiliary_publisher is not None),
         )
         self._idle.clear()
         self._queue.put(_PersistenceJob(batch=batch, result=result))
@@ -446,6 +448,18 @@ class PersistentMemoryStore:
         with self._lock:
             self._workflow_store.commit_state(batch.state_snapshot, batch.state_summaries)
             self._trace_store.append_entries(batch.state_snapshot.session_id, batch.trace_entries)
+            if self._auxiliary_publisher is not None and batch.auxiliary_artifacts:
+                try:
+                    self._auxiliary_publisher(batch)
+                except Exception as exc:  # pragma: no cover - exercised through integration test
+                    notification = PersistenceNotification(
+                        level="warning",
+                        message=str(exc),
+                        should_stop=False,
+                    )
+                    self._notifications.append(notification)
+                    if self._notification_callback is not None:
+                        self._notification_callback(notification)
 
 
 def _decode_json_value(value: Any) -> dict[str, Any]:

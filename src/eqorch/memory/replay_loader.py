@@ -81,7 +81,10 @@ class ReplayLoader:
     def _parse_summary(self, summary: str) -> dict[str, object] | None:
         if summary == "pending":
             return None
-        return json.loads(summary)
+        try:
+            return json.loads(summary)
+        except json.JSONDecodeError:
+            return None
 
 
 def _is_subset(actual: object, expected: object) -> bool:
