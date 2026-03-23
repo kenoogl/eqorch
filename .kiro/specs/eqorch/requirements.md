@@ -116,6 +116,8 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 ### Requirement 8: ワークフローメモリ
 **Objective:** As a 研究者, I want 探索の状態と履歴を永続化したい, so that セッションをまたいで再現可能に探索を継続できる
 
+現行実装フェーズでは `KnowledgeIndex` を優先実装対象とし、`ArtifactStore` は後続開発で導入する optional 拡張として扱う。
+
 #### Acceptance Criteria
 1. The EqOrch system shall 外部記憶アーキテクチャとして、PostgreSQL 正本層、Trace と replay の記録層、optional な Vector DB 意味検索層、optional な Object Storage 生成物保管層を役割分離して扱う
 2. The EqOrch system shall Trace と replay の記録層を PostgreSQL 正本層内の論理分離された責務として扱い、Candidate と Evaluation の構造化保存責務と区別する
@@ -229,16 +231,21 @@ EqOrch は探索アルゴリズムそのものを内包せず、LLM ベースの
 16. The EqOrch system shall PostgreSQL を再現と再開の唯一の正本として扱う
 17. The EqOrch system shall Vector DB と Object Storage を補助層として扱い、それらのみでは再現可能性を成立条件としない
 18. The EqOrch system shall PostgreSQL 正本永続層へのコミット遅延を、補助層の遅延と分離して個別に測定できる
-19. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB 補助インデックスの更新遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
-20. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage 補助ストアへの転送遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
-21. The EqOrch system shall PostgreSQL 上の正本状態データを基点とした replay の復元時間を、通常サイクルの制御オーバーヘッドと分離して個別に測定できる
-22. If PostgreSQL 正本永続層の保全要件と性能目標が衝突する場合, then the EqOrch system shall 性能目標より正本コミットの整合性と再現可能性を優先する
-23. The EqOrch system shall PostgreSQL 正本永続層のスキーマ変更時に、既存の replay と restart データとの互換性を維持するか、明示的な移行手段を提供する
-24. The EqOrch system shall TraceLog と正本状態データのバージョン差異を検出し、不整合な組み合わせで replay を開始しない
-25. The EqOrch system shall LLM API キー、外部サービス認証情報、接続文字列を TraceLog、Object Storage、JSON Lines エクスポートへ平文で記録しない
-26. The EqOrch system shall PostgreSQL、Vector DB、Object Storage へのアクセスを実行構成で制御できる
-27. The EqOrch system shall 外部記憶へ保存する payload から認証情報その他の機微情報を除外またはマスクできる
-28. The EqOrch system shall PostgreSQL 正本書き込み失敗、Vector DB または Object Storage の補助層書き込み失敗、replay 失敗、スキーマ不整合を運用上識別可能なイベントとして記録または通知できる
+19. The EqOrch system shall PostgreSQL 正本永続層に対する継続的な自動検証導線を持ち、正本保存、再起動復元、replay 基点復元を実 DB 接続で確認できる
+20. Where 意味検索を有効にする構成では, the EqOrch system shall Vector DB 補助インデックスの更新遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
+21. Where 大容量ログまたは外部生成物を保持する構成では, the EqOrch system shall Object Storage 補助ストアへの転送遅延を PostgreSQL 正本永続層の遅延と分離して個別に測定できる
+22. The EqOrch system shall PostgreSQL 上の正本状態データを基点とした replay の復元時間を、通常サイクルの制御オーバーヘッドと分離して個別に測定できる
+23. The EqOrch system shall 単体、結合、E2E、非機能検証をカテゴリごとに標準化された実行導線で反復実行できる
+24. The EqOrch system shall 利用者向け README または運用ドキュメントとして、セットアップ、起動方法、再開方法、検証方法、必要環境変数、現行マイルストーン範囲を参照できる形で提供する
+25. The EqOrch system shall PostgreSQL 正本永続層の本運用に向けて、スキーマ初期化方法、移行手段、接続管理、障害時観測方法を明示できる
+26. The EqOrch system shall PostgreSQL 正本運用時の未決事項を、実装前または運用前に判断可能な形で整理する
+27. If PostgreSQL 正本永続層の保全要件と性能目標が衝突する場合, then the EqOrch system shall 性能目標より正本コミットの整合性と再現可能性を優先する
+28. The EqOrch system shall PostgreSQL 正本永続層のスキーマ変更時に、既存の replay と restart データとの互換性を維持するか、明示的な移行手段を提供する
+29. The EqOrch system shall TraceLog と正本状態データのバージョン差異を検出し、不整合な組み合わせで replay を開始しない
+30. The EqOrch system shall LLM API キー、外部サービス認証情報、接続文字列を TraceLog、Object Storage、JSON Lines エクスポートへ平文で記録しない
+31. The EqOrch system shall PostgreSQL、Vector DB、Object Storage へのアクセスを実行構成で制御できる
+32. The EqOrch system shall 外部記憶へ保存する payload から認証情報その他の機微情報を除外またはマスクできる
+33. The EqOrch system shall PostgreSQL 正本書き込み失敗、Vector DB または Object Storage の補助層書き込み失敗、replay 失敗、スキーマ不整合を運用上識別可能なイベントとして記録または通知できる
 
 ### Requirement 14: 前提条件
 **Objective:** As a プロジェクト保守者, I want システム成立に必要な前提条件を明確にしたい, so that 設計と運用の責任境界を曖昧にしない
