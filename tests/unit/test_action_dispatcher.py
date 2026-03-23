@@ -149,6 +149,38 @@ class DispatcherTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown parameters"):
             dispatcher.dispatch(actions, state)
 
+    def test_rejects_missing_required_parameters(self) -> None:
+        dispatcher = self._dispatcher()
+        state = self._state()
+        actions = [
+            Action(
+                type="call_skill",
+                target="example_skill",
+                parameters={},
+                issued_at=ts(),
+                action_id=str(uuid4()),
+            )
+        ]
+
+        with self.assertRaisesRegex(ValueError, "missing parameters"):
+            dispatcher.dispatch(actions, state)
+
+    def test_rejects_invalid_switch_mode_target(self) -> None:
+        dispatcher = self._dispatcher()
+        state = self._state()
+        actions = [
+            Action(
+                type="switch_mode",
+                target="system",
+                parameters={"target_mode": "analysis"},
+                issued_at=ts(),
+                action_id=str(uuid4()),
+            )
+        ]
+
+        with self.assertRaisesRegex(ValueError, "switch_mode.target_mode"):
+            dispatcher.dispatch(actions, state)
+
     def test_updates_mode_and_stages_policy_update(self) -> None:
         dispatcher = self._dispatcher()
         state = self._state()

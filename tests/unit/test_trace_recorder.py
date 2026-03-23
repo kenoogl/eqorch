@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
-from eqorch.domain import Action, ErrorInfo, Memory, Result, State
+from eqorch.domain import Action, ErrorInfo, Memory, MemoryEntry, Result, State
 from eqorch.domain.policy import PolicyContext
 from eqorch.tracing import TraceRecorder
 
@@ -89,6 +89,60 @@ class TraceRecorderTest(unittest.TestCase):
 
         for diff in plan.state_diff:
             self.assertTrue(diff.path == "" or diff.path.startswith("/"))
+
+    def test_replaces_list_diffs_for_memory_entries(self) -> None:
+        previous = State(
+            policy_context=PolicyContext(goals=("goal",)),
+            workflow_memory=Memory(
+                entries=[
+                    MemoryEntry(
+                        key="old",
+                        value={"value": 1},
+                        created_at=ts(),
+                        last_accessed=ts(),
+                    )
+                ],
+                max_entries=10,
+                eviction_policy="fifo",
+            ),
+            session_id=str(uuid4()),
+        )
+        current = State(
+            policy_context=previous.policy_context,
+            workflow_memory=Memory(
+                entries=[
+                    MemoryEntry(
+                        key="new",
+                        value={"value": 2},
+                        created_at=ts(),
+                        last_accessed=ts(),
+                    )
+                ],
+                max_entries=10,
+                eviction_policy="fifo",
+            ),
+            session_id=previous.session_id,
+        )
+        action = Action(
+            type="call_tool",
+            target="example_tool",
+            parameters={"query": "q"},
+            issued_at=ts(),
+            action_id=str(uuid4()),
+        )
+        result = Result(status="success", payload={"ok": True}, error=None)
+
+        plan = TraceRecorder().record(
+            action=action,
+            result=result,
+            previous_state=previous,
+            next_state=current,
+            duration_ms=1,
+            timestamp=ts(),
+        )
+
+        ops = {(entry.op, entry.path) for entry in plan.state_diff}
+        self.assertIn(("replace", "/workflow_memory/entries"), ops)
 
 
 if __name__ == "__main__":
