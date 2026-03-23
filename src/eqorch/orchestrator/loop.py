@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from eqorch.app import ErrorCoordinator
-from eqorch.domain import Action, MemoryEntry, State
+from eqorch.domain import Action, MemoryEntry, Result, State
 from eqorch.memory import WorkingMemory
 from eqorch.memory import PersistenceCommit, PersistentMemoryStore
 from eqorch.orchestrator.action_dispatcher import DispatchRecord
@@ -77,8 +77,24 @@ class OrchestrationLoop:
         should_continue = True
 
         for action in actions:
+            snapshot = memory.snapshot()
             before_state = deepcopy(memory.state)
-            record = self._dispatcher.dispatch([action], memory.state)[0]
+            try:
+                record = self._dispatcher.dispatch([action], memory.state)[0]
+            except Exception as exc:
+                memory.restore(snapshot)
+                coordinated = self._error_coordinator.normalize(source="state", failure=exc)
+                if coordinated.should_record_last_error:
+                    memory.record_error(action.action_id, coordinated.error)
+                record = DispatchRecord(
+                    action=action,
+                    result=Result(status="error", payload={}, error=coordinated.error),
+                    trace_plan=self._trace_recorder.plan(
+                        action,
+                        Result(status="error", payload={}, error=coordinated.error),
+                        [],
+                    ),
+                )
             dispatches.append(record)
 
             if record.result.status == "success":

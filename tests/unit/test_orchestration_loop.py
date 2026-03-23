@@ -14,6 +14,7 @@ from eqorch.domain.policy import PolicyContext
 from eqorch.gateways import BackendGateway, EngineGateway, LLMGateway
 from eqorch.memory import PersistentMemoryStore, SqliteConnectionFactory
 from eqorch.orchestrator import ActionDispatcher, DecisionContextAssembler, OrchestrationLoop
+from eqorch.orchestrator.action_dispatcher import DispatchRecord
 from eqorch.registry import ComponentConfigLoader, EngineRegistry, SkillRegistry, ToolRegistry
 from eqorch.tracing import TraceRecorder
 
@@ -169,6 +170,37 @@ class OrchestrationLoopTest(unittest.TestCase):
         )
         return loop, store, transport
 
+    def _build_faulty_loop(self):
+        loop, store, _ = self._build_loop(
+            actions=[
+                {
+                    "type": "switch_mode",
+                    "target": "system",
+                    "parameters": {"target_mode": "batch", "reason": "scheduled"},
+                }
+            ]
+        )
+
+        class FaultyDispatcher:
+            def _validate_batch(self, actions):
+                return None
+
+            def dispatch(self, actions, state):
+                state.current_mode = "batch"
+                raise RuntimeError("state apply failed")
+
+            def list_pending_jobs(self):
+                return ()
+
+            def poll_pending_job(self, job_id, timeout_sec=3600):
+                raise AssertionError("not used")
+
+            def cancel_pending_job(self, job_id, timeout_sec=3600):
+                raise AssertionError("not used")
+
+        loop._dispatcher = FaultyDispatcher()  # type: ignore[assignment, attr-defined]
+        return loop, store
+
     def test_runs_basic_cycle_and_updates_state(self) -> None:
         loop, store, _ = self._build_loop(
             actions=[
@@ -321,6 +353,23 @@ class OrchestrationLoopTest(unittest.TestCase):
         self.assertIsNotNone(restored)
         self.assertEqual(restored.step, 2)
         self.assertEqual(restored.pending_jobs, [])
+
+    def test_rolls_back_partial_apply_failure_and_records_last_error(self) -> None:
+        loop, store = self._build_faulty_loop()
+        state = self._state()
+
+        result = loop.run_cycle(state, issued_at=ts())
+
+        self.assertTrue(result.should_continue)
+        self.assertEqual(result.state.current_mode, "interactive")
+        self.assertEqual(result.state.step, 1)
+        self.assertEqual(len(result.state.last_errors), 1)
+        error = next(iter(result.state.last_errors.values()))
+        self.assertEqual(error.code, "STATE_APPLY_FAILED")
+        self.assertTrue(store.flush(timeout=2))
+        restored = store.load_latest(state.session_id)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.current_mode, "interactive")
 
 
 if __name__ == "__main__":
